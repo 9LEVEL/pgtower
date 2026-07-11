@@ -42,6 +42,7 @@ type databasesView struct {
 	// criar database / dropar database
 	form          form
 	confirm       confirmModal
+	alert         alertModal
 	pendingDropDB string
 	status        string
 
@@ -57,6 +58,7 @@ func newDatabasesView(mgr *db.Manager) *databasesView {
 	v.tblTable = newTable()
 	v.browser = newDataBrowser(mgr)
 	v.confirm = newConfirmModal()
+	v.alert = newAlertModal()
 	v.descVP = viewport.New(80, 20)
 	return v
 }
@@ -64,7 +66,7 @@ func newDatabasesView(mgr *db.Manager) *databasesView {
 func (v *databasesView) Title() string { return "Bancos" }
 
 func (v *databasesView) CapturingInput() bool {
-	if v.form.active || v.confirm.active {
+	if v.form.active || v.confirm.active || v.alert.active {
 		return true
 	}
 	return v.mode == modeTableData && v.browser.CapturingInput()
@@ -169,7 +171,13 @@ func (v *databasesView) Update(msg tea.Msg) tea.Cmd {
 
 	case execMsg:
 		if msg.err != nil {
-			v.status = stErr.Render(fmt.Sprintf("✗ %s: %s", msg.action, collapseErr(msg.err.Error())))
+			v.status = stErr.Render("✗ " + msg.action)
+			body := pgErrorText(msg.err)
+			if strings.HasPrefix(msg.action, "dropar database") {
+				body += "\n\nDICA: se houver conexões ativas nesse database, encerre-as " +
+					"antes na aba Sessões (tecla 'k')."
+			}
+			v.alert.show(v.width, v.height, "Falha ao "+msg.action, body, true)
 			return nil
 		}
 		v.status = stGood.Render("✓ " + msg.action + " ok")
@@ -183,6 +191,10 @@ func (v *databasesView) Update(msg tea.Msg) tea.Cmd {
 
 func (v *databasesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	// Overlays têm prioridade.
+	if v.alert.active {
+		v.alert.update(msg)
+		return nil
+	}
 	if v.confirm.active {
 		switch v.confirm.update(msg) {
 		case confirmYes:
@@ -324,6 +336,9 @@ func (v *databasesView) FooterHints() string {
 }
 
 func (v *databasesView) View() string {
+	if v.alert.active {
+		return v.alert.view(v.width, v.height)
+	}
 	if v.form.active {
 		return v.form.view(v.width, v.height)
 	}

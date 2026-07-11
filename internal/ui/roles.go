@@ -26,6 +26,7 @@ type rolesView struct {
 
 	form     form
 	confirm  confirmModal
+	alert    alertModal
 	formKind int
 
 	pendingDropRole string
@@ -38,12 +39,14 @@ type rolesView struct {
 }
 
 func newRolesView(mgr *db.Manager) *rolesView {
-	return &rolesView{mgr: mgr, tbl: newTable(), confirm: newConfirmModal()}
+	return &rolesView{mgr: mgr, tbl: newTable(), confirm: newConfirmModal(), alert: newAlertModal()}
 }
 
 func (v *rolesView) Title() string { return "Roles" }
 
-func (v *rolesView) CapturingInput() bool { return v.form.active || v.confirm.active }
+func (v *rolesView) CapturingInput() bool {
+	return v.form.active || v.confirm.active || v.alert.active
+}
 
 func (v *rolesView) Init() tea.Cmd {
 	v.loading = true
@@ -100,7 +103,12 @@ func (v *rolesView) Update(msg tea.Msg) tea.Cmd {
 
 	case execMsg:
 		if msg.err != nil {
-			v.status = stErr.Render(fmt.Sprintf("✗ %s: %s", msg.action, collapseErr(msg.err.Error())))
+			v.status = stErr.Render("✗ " + msg.action)
+			body := pgErrorText(msg.err)
+			if strings.HasPrefix(msg.action, "dropar role") {
+				body += "\n\n" + dropRoleHint
+			}
+			v.alert.show(v.width, v.height, "Falha ao "+msg.action, body, true)
 			return nil
 		}
 		v.status = stGood.Render("✓ " + msg.action + " ok")
@@ -112,7 +120,17 @@ func (v *rolesView) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
+const dropRoleHint = "COMO RESOLVER: o role possui objetos ou tem privilégios concedidos. " +
+	"Reatribua os objetos (REASSIGN OWNED BY \"role\" TO \"outro\") ou remova-os " +
+	"(DROP OWNED BY \"role\") em CADA database onde o role tem objetos, e revogue " +
+	"privilégios/ownership de databases, antes do DROP ROLE. Rode esses comandos " +
+	"pela aba Query (trocando o database alvo com '/')."
+
 func (v *rolesView) handleKey(msg tea.KeyMsg) tea.Cmd {
+	if v.alert.active {
+		v.alert.update(msg)
+		return nil
+	}
 	if v.confirm.active {
 		switch v.confirm.update(msg) {
 		case confirmYes:
@@ -240,6 +258,9 @@ func (v *rolesView) FooterHints() string {
 }
 
 func (v *rolesView) View() string {
+	if v.alert.active {
+		return v.alert.view(v.width, v.height)
+	}
 	if v.form.active {
 		return v.form.view(v.width, v.height)
 	}

@@ -16,6 +16,7 @@ type sessionsView struct {
 	tbl      table.Model
 	sessions []db.Session
 	confirm  confirmModal
+	alert    alertModal
 
 	pendingAction string
 	pendingPID    int32
@@ -28,11 +29,11 @@ type sessionsView struct {
 }
 
 func newSessionsView(mgr *db.Manager) *sessionsView {
-	return &sessionsView{mgr: mgr, tbl: newTable(), confirm: newConfirmModal()}
+	return &sessionsView{mgr: mgr, tbl: newTable(), confirm: newConfirmModal(), alert: newAlertModal()}
 }
 
 func (v *sessionsView) Title() string        { return "Sessões" }
-func (v *sessionsView) CapturingInput() bool { return v.confirm.active }
+func (v *sessionsView) CapturingInput() bool { return v.confirm.active || v.alert.active }
 
 func (v *sessionsView) Init() tea.Cmd {
 	v.loading = true
@@ -81,7 +82,8 @@ func (v *sessionsView) Update(msg tea.Msg) tea.Cmd {
 
 	case sessionActionMsg:
 		if msg.err != nil {
-			v.status = stErr.Render(fmt.Sprintf("✗ %s pid %d: %s", msg.action, msg.pid, collapseErr(msg.err.Error())))
+			v.status = stErr.Render(fmt.Sprintf("✗ %s pid %d", msg.action, msg.pid))
+			v.alert.show(v.width, v.height, fmt.Sprintf("Falha ao %s pid %d", msg.action, msg.pid), pgErrorText(msg.err), true)
 		} else if msg.ok {
 			v.status = stGood.Render(fmt.Sprintf("✓ %s enviado ao pid %d", msg.action, msg.pid))
 		} else {
@@ -96,6 +98,10 @@ func (v *sessionsView) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (v *sessionsView) handleKey(msg tea.KeyMsg) tea.Cmd {
+	if v.alert.active {
+		v.alert.update(msg)
+		return nil
+	}
 	if v.confirm.active {
 		switch v.confirm.update(msg) {
 		case confirmYes:
@@ -144,6 +150,9 @@ func (v *sessionsView) FooterHints() string {
 }
 
 func (v *sessionsView) View() string {
+	if v.alert.active {
+		return v.alert.view(v.width, v.height)
+	}
 	body := v.viewBody()
 	if v.confirm.active {
 		return v.confirm.view(v.width, v.height)

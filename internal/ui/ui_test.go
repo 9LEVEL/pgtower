@@ -2,16 +2,34 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/9level/pg-tui/internal/config"
 	"github.com/9level/pg-tui/internal/db"
 )
+
+func TestPgErrorText(t *testing.T) {
+	pg := &pgconn.PgError{Message: "boom", Detail: "porque X", Hint: "faça Y"}
+	got := pgErrorText(pg)
+	for _, want := range []string{"boom", "porque X", "faça Y"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("pgErrorText não contém %q: %q", want, got)
+		}
+	}
+	if pgErrorText(errors.New("plano")) != "plano" {
+		t.Error("pgErrorText de erro simples deveria retornar a mensagem")
+	}
+	if pgErrorText(nil) != "" {
+		t.Error("pgErrorText(nil) deveria ser vazio")
+	}
+}
 
 func testManager(t *testing.T) *db.Manager {
 	t.Helper()
@@ -235,6 +253,17 @@ func TestSessionsAndRolesRender(t *testing.T) {
 	m, _ = m.Update(key("g"))
 	assertContains(t, m.View(), "Grant", "Database", "Privilégio")
 	m, _ = m.Update(key("esc"))
+
+	// Erro de ação admin abre um alerta com a mensagem COMPLETA (sem cortar).
+	pgErr := &pgconn.PgError{
+		Message: "role \"app_user\" cannot be dropped because some objects depend on it",
+		Detail:  "owner of database prod",
+	}
+	m, _ = m.Update(execMsg{action: "dropar role app_user", err: pgErr})
+	assertContains(t, m.View(), "Falha ao dropar role", "cannot be dropped",
+		"owner of database prod", "COMO RESOLVER")
+	m, _ = m.Update(key("esc")) // fecha o alerta
+	assertContains(t, m.View(), "Roles do cluster")
 }
 
 // TestDashboardTickStartsOnce garante que reabrir a aba Dashboard não cria
