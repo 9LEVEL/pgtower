@@ -126,21 +126,24 @@ PGTUI_DEBUG=/tmp/pgtui.log ./pgtui
 
 ## Distribuição
 
-`pgtui` é um binário único e estático — o jeito canônico de rodar é compilar e
-copiar o executável:
+`pgtui` é um **utilitário Go compilado** — um binário único, estático
+(`CGO_ENABLED=0`), sem runtime nem container. Roda direto no terminal.
 
 ```bash
-make release VERSION=v0.1.0   # valida semver + working tree limpa, cria a tag e faz push
+make build                    # gera ./pgtui para a plataforma atual
 make install                  # instala em /usr/local/bin (sudo)
+make build-all VERSION=v0.3.0 # cross-compila para dist/ (linux/darwin, amd64/arm64)
 ```
 
-O push da tag `v*.*.*` dispara o CI (`.github/workflows/ci.yml`), que roda os
-testes e publica a imagem em `ghcr.io/9level/pg-tui:<tag>` + `:latest` para quem
-preferir rodar containerizado (`docker run -it --rm --env-file .env ghcr.io/9level/pg-tui`).
+Release por tag:
 
-Fluxo: `git push` da tag → GitHub Actions (testes → build) → GHCR (`:<tag>` + `:latest`).
+```bash
+make release VERSION=v0.3.0   # valida semver + working tree limpa, cria a tag e faz push
+```
 
-**Rollback:** como o binário é único e sem estado, basta voltar para uma tag
-anterior — `docker run -it --rm --env-file .env ghcr.io/9level/pg-tui:v0.1.0`
-(imagem) ou `git checkout v0.1.0 && make install` (binário local). O `pgtui`
-não altera schema, então não há migration para reverter.
+Fluxo: `git push` da tag `v*.*.*` → GitHub Actions (testes → `build-all`) →
+binários anexados ao **GitHub Release** (`.github/workflows/ci.yml`).
+
+**Rollback:** binário sem estado — basta rodar/instalar uma tag anterior
+(baixe o binário do release antigo, ou `git checkout v0.2.0 && make install`).
+O `pgtui` não altera schema próprio, então não há migration a reverter.
