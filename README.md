@@ -137,3 +137,10 @@ make install                  # instala em /usr/local/bin (sudo)
 O push da tag `v*.*.*` dispara o CI (`.github/workflows/ci.yml`), que roda os
 testes e publica a imagem em `ghcr.io/9level/pg-tui:<tag>` + `:latest` para quem
 preferir rodar containerizado (`docker run -it --rm --env-file .env ghcr.io/9level/pg-tui`).
+
+Fluxo: `git push` da tag → GitHub Actions (testes → build) → GHCR (`:<tag>` + `:latest`).
+
+**Rollback:** como o binário é único e sem estado, basta voltar para uma tag
+anterior — `docker run -it --rm --env-file .env ghcr.io/9level/pg-tui:v0.1.0`
+(imagem) ou `git checkout v0.1.0 && make install` (binário local). O `pgtui`
+não altera schema, então não há migration para reverter.

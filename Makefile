@@ -46,6 +46,7 @@ clean:
 .PHONY: release
 release:
 	@echo "$(VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "VERSION inválido (esperado vX.Y.Z): '$(VERSION)'"; exit 1; }
+	@git rev-parse -q --verify "refs/tags/$(VERSION)" >/dev/null && { echo "tag $(VERSION) já existe"; exit 1; } || true
 	@test -z "$$(git status --porcelain)" || { echo "working tree suja — commite ou stashe antes de release"; exit 1; }
 	@git tag -a "$(VERSION)" -m "release $(VERSION)"
 	@git push origin "$(VERSION)"
