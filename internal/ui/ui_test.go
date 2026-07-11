@@ -89,6 +89,33 @@ func TestModelNavigationRender(t *testing.T) {
 	assertContains(t, m.View(), "Atalhos do teclado", "executar a query")
 }
 
+func TestQueryDatabasePicker(t *testing.T) {
+	mgr := testManager(t)
+	defer mgr.Close()
+
+	cfg := &config.Config{Host: "h", Port: "5432", User: "postgres", AdminDB: "postgres", RefreshSeconds: 5}
+	var m tea.Model = New(cfg, mgr)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	// vai para a aba Query e alimenta a lista de bancos (broadcast)
+	m, _ = m.Update(key("3"))
+	m, _ = m.Update(databasesMsg{rows: []db.Database{
+		{Name: "postgres"}, {Name: "b_fusion"}, {Name: "db_corely"},
+	}})
+
+	// '/' abre o seletor
+	m, _ = m.Update(key("/"))
+	assertContains(t, m.View(), "Rodar queries em qual database?", "b_fusion", "db_corely", "3/3")
+
+	// filtra por "fus" -> só b_fusion
+	m, _ = m.Update(key("fus"))
+	assertContains(t, m.View(), "b_fusion", "1/3")
+
+	// enter seleciona -> alvo vira b_fusion
+	m, _ = m.Update(key("enter"))
+	assertContains(t, m.View(), "alvo:", "b_fusion", "alvo alterado para b_fusion")
+}
+
 func assertContains(t *testing.T, s string, subs ...string) {
 	t.Helper()
 	for _, sub := range subs {

@@ -75,8 +75,8 @@ make run
 | `r` | recarregar |
 | **Query** | |
 | `i` / `enter` | focar o editor SQL |
+| `/` (em navegação) ou `ctrl+t` | trocar o database alvo — abre uma lista filtrável dos bancos do cluster |
 | `ctrl+r` / `f5` | executar |
-| `ctrl+t` | escolher o database alvo |
 | `esc` | sair do editor (foca os resultados) |
 | `↑`/`↓` | rolar o grid de resultados |
 | **Locks** | |

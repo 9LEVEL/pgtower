@@ -26,6 +26,7 @@ func (m *Model) overlayHelp(bg string) string {
 		{"", ""},
 		{"Query Runner", ""},
 		{"enter / i", "focar o editor SQL"},
+		{"/  ou  ctrl+t", "trocar o database alvo (lista filtrável)"},
 		{"ctrl+r  /  f5", "executar a query"},
 		{"esc", "sair do editor (foca resultados)"},
 		{"↑/↓ ←/→", "rolar o grid de resultados"},

@@ -35,6 +35,11 @@ type queryView struct {
 	mode     queryMode
 	targetDB string
 
+	// seletor de database (aberto com '/' ou ctrl+t)
+	dbNames    []string
+	dbFiltered []string
+	dbCursor   int
+
 	pendingSQL    string
 	pendingDanger db.Danger
 
@@ -59,7 +64,7 @@ func newQueryView(cfg *config.Config, mgr *db.Manager) *queryView {
 	ci.CharLimit = 16
 
 	ti := textinput.New()
-	ti.Placeholder = "nome do database"
+	ti.Placeholder = "filtrar…"
 	ti.CharLimit = 63
 
 	v := &queryView{
@@ -125,6 +130,19 @@ func (v *queryView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case databasesMsg:
+		// Alimenta o seletor de database ('/' ou ctrl+t). É broadcast.
+		if msg.err == nil {
+			v.dbNames = v.dbNames[:0]
+			for _, d := range msg.rows {
+				v.dbNames = append(v.dbNames, d.Name)
+			}
+			if v.mode == modeTarget {
+				v.filterDBs()
+			}
+		}
+		return nil
+
 	case tea.KeyMsg:
 		return v.handleKey(msg)
 	}
@@ -144,10 +162,7 @@ func (v *queryView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case "ctrl+r", "f5":
 		return v.submit()
 	case "ctrl+t":
-		v.mode = modeTarget
-		v.editor.Blur()
-		v.target.SetValue(v.targetDB)
-		return v.target.Focus()
+		return v.openTarget()
 	}
 
 	if v.mode == modeEdit {
@@ -161,8 +176,10 @@ func (v *queryView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return cmd
 	}
 
-	// modeResults
+	// modeResults (navegação): teclas únicas são comandos.
 	switch msg.String() {
+	case "/":
+		return v.openTarget()
 	case "enter", "i", "e", "a":
 		v.mode = modeEdit
 		return v.editor.Focus()
@@ -170,6 +187,34 @@ func (v *queryView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	v.results, cmd = v.results.Update(msg)
 	return cmd
+}
+
+// openTarget abre o seletor de database: recarrega a lista e foca o filtro.
+func (v *queryView) openTarget() tea.Cmd {
+	v.mode = modeTarget
+	v.editor.Blur()
+	v.target.SetValue("")
+	v.dbCursor = 0
+	v.filterDBs()
+	return tea.Batch(loadDatabases(v.mgr), v.target.Focus())
+}
+
+// filterDBs recomputa a lista visível a partir do texto do filtro (substring,
+// case-insensitive) e mantém o cursor dentro dos limites.
+func (v *queryView) filterDBs() {
+	q := strings.ToLower(strings.TrimSpace(v.target.Value()))
+	v.dbFiltered = v.dbFiltered[:0]
+	for _, name := range v.dbNames {
+		if q == "" || strings.Contains(strings.ToLower(name), q) {
+			v.dbFiltered = append(v.dbFiltered, name)
+		}
+	}
+	if v.dbCursor >= len(v.dbFiltered) {
+		v.dbCursor = len(v.dbFiltered) - 1
+	}
+	if v.dbCursor < 0 {
+		v.dbCursor = 0
+	}
 }
 
 func (v *queryView) handleConfirmKey(msg tea.KeyMsg) tea.Cmd {
@@ -201,23 +246,45 @@ func (v *queryView) handleConfirmKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 func (v *queryView) handleTargetKey(msg tea.KeyMsg) tea.Cmd {
-	switch msg.Type {
-	case tea.KeyEsc:
-		v.mode = modeEdit
+	switch msg.String() {
+	case "esc":
 		v.target.Blur()
-		return v.editor.Focus()
-	case tea.KeyEnter:
-		name := strings.TrimSpace(v.target.Value())
-		if name != "" {
+		v.mode = modeResults
+		return nil
+	case "up", "ctrl+p":
+		if v.dbCursor > 0 {
+			v.dbCursor--
+		}
+		return nil
+	case "down", "ctrl+n":
+		if v.dbCursor < len(v.dbFiltered)-1 {
+			v.dbCursor++
+		}
+		return nil
+	case "enter":
+		name := ""
+		if v.dbCursor >= 0 && v.dbCursor < len(v.dbFiltered) {
+			name = v.dbFiltered[v.dbCursor]
+		} else {
+			// Sem item na lista: usa o texto digitado como nome literal.
+			name = strings.TrimSpace(v.target.Value())
+		}
+		v.target.Blur()
+		if name == "" {
+			v.mode = modeResults
+			return nil
+		}
+		if name != v.targetDB {
 			v.targetDB = name
 			v.status = "alvo alterado para " + name
 		}
 		v.mode = modeEdit
-		v.target.Blur()
 		return v.editor.Focus()
 	}
+	// Demais teclas atualizam o filtro.
 	var cmd tea.Cmd
 	v.target, cmd = v.target.Update(msg)
+	v.filterDBs()
 	return cmd
 }
 
@@ -301,11 +368,11 @@ func (v *queryView) FooterHints() string {
 	case modeConfirm:
 		return hint("y/n", "confirmar/cancelar")
 	case modeTarget:
-		return hint("enter", "definir alvo") + "   " + hint("esc", "cancelar")
+		return hint("↑↓", "escolher") + "   " + hint("enter", "confirmar") + "   " + hint("esc", "cancelar")
 	case modeEdit:
-		return hint("ctrl+r", "executar") + "   " + hint("ctrl+t", "alvo") + "   " + hint("esc", "resultados")
+		return hint("ctrl+r", "executar") + "   " + hint("ctrl+t", "trocar db") + "   " + hint("esc", "resultados")
 	default:
-		return hint("i", "editar") + "   " + hint("ctrl+r", "executar") + "   " + hint("↑↓", "rolar")
+		return hint("i", "editar") + "   " + hint("/", "trocar db") + "   " + hint("ctrl+r", "executar") + "   " + hint("↑↓", "rolar")
 	}
 }
 
@@ -386,10 +453,42 @@ func (v *queryView) overlayConfirm(bg string) string {
 
 func (v *queryView) overlayTarget(bg string) string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(colOnDark).Background(colAccent).
-		Padding(0, 1).Render(" Database alvo ")
-	body := fmt.Sprintf("Rodar as queries em qual database?\n\n%s\n\n%s confirmar    %s cancelar",
-		v.target.View(), stKey.Render("enter"), stKey.Render("esc"))
-	box := stModal.BorderForeground(colAccent).Render(title + "\n\n" + body)
+		Padding(0, 1).Render(" Rodar queries em qual database? ")
+
+	// Lista filtrada (janela de até 12 itens ao redor do cursor).
+	const window = 12
+	start := 0
+	if v.dbCursor >= window {
+		start = v.dbCursor - window + 1
+	}
+	end := start + window
+	if end > len(v.dbFiltered) {
+		end = len(v.dbFiltered)
+	}
+
+	var list strings.Builder
+	if len(v.dbFiltered) == 0 {
+		list.WriteString(stKeyHint.Render("  (nenhum database bate com o filtro)"))
+	}
+	for i := start; i < end; i++ {
+		name := v.dbFiltered[i]
+		marker := "  "
+		if name == v.targetDB {
+			marker = stGood.Render("● ")
+		}
+		line := marker + name
+		if i == v.dbCursor {
+			line = lipgloss.NewStyle().Foreground(colOnDark).Background(colAccent).Bold(true).
+				Render(" " + pad(marker+name, 30) + " ")
+		}
+		list.WriteString(line + "\n")
+	}
+
+	count := fmt.Sprintf("%d/%d", len(v.dbFiltered), len(v.dbNames))
+	hints := stKeyHint.Render("↑↓ selecionar · enter confirmar · esc cancelar · " + count)
+	body := "filtro: " + v.target.View() + "\n\n" + strings.TrimRight(list.String(), "\n") + "\n\n" + hints
+
+	box := stModal.BorderForeground(colAccent).Width(46).Render(title + "\n\n" + body)
 	return lipgloss.Place(v.width, v.height, lipgloss.Center, lipgloss.Center, box)
 }
 
