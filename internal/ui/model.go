@@ -50,6 +50,8 @@ func New(cfg *config.Config, mgr *db.Manager) *Model {
 		newDatabasesView(mgr),
 		newQueryView(cfg, mgr),
 		newLocksView(mgr),
+		newSessionsView(mgr),
+		newRolesView(mgr),
 	}
 	return m
 }
@@ -220,7 +222,7 @@ func (m *Model) renderFooter() string {
 	}
 	tabHints := m.tabs[m.active].FooterHints()
 	global := strings.Join([]string{
-		hint("1-4", "abas"),
+		hint("1-6", "abas"),
 		hint("?", "ajuda"),
 		hint("q", "sair"),
 	}, "   ")

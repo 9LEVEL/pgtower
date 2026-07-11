@@ -27,7 +27,7 @@ func newLocksView(mgr *db.Manager) *locksView {
 	return v
 }
 
-func (v *locksView) Title() string       { return "Locks" }
+func (v *locksView) Title() string        { return "Locks" }
 func (v *locksView) CapturingInput() bool { return false }
 
 func (v *locksView) Init() tea.Cmd {

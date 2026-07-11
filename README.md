@@ -1,23 +1,30 @@
 # pgtui
 
 TUI de administração de **PostgreSQL** para sysadmins — navegação 100% por teclado.
-Conecta em um cluster via `DATABASE_URL` e oferece, em quatro abas:
+Conecta em um cluster via `DATABASE_URL` e oferece, em seis abas:
 
 | Aba | O que faz |
 |-----|-----------|
 | **1 · Dashboard** | Saúde do cluster: conexões vs `max_connections`, cache hit ratio, uptime, tamanho total, commits/rollbacks, versão, query ativa mais longa e replicação. Auto-refresh. |
-| **2 · Bancos** | Lista os databases (owner, tamanho, conexões) → tabelas (tamanho total / heap / índices / linhas) → **dados da tabela em modo leitura**: grid com scroll horizontal de colunas (`←→`), busca na coluna ativa (`/` → `ILIKE`) e barra de query no topo (`e`) para consultas customizadas somente-leitura. |
-| **3 · Query** | Editor SQL com grid de resultados paginado. Statements de **escrita** pedem confirmação; **destrutivos** (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` sem `WHERE`) exigem digitar `sim`. |
-| **4 · Locks** | Árvore de bloqueios: quem está esperando por qual sessão. |
+| **2 · Bancos** | Databases (owner, tamanho, conexões) → tabelas → **dados em modo leitura** (scroll horizontal `←→`, busca na coluna `/`, query no topo `e`). Também: **criar** (`n`) e **apagar** (`D`) database e **describe** da tabela (`d`: colunas, tipos, índices, constraints). |
+| **3 · Query** | Editor SQL com grid paginado. `x` roda **EXPLAIN** (plano, sem executar). Escrita pede confirmação; destrutivo (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` sem `WHERE`) exige digitar `sim`. |
+| **4 · Locks** | Árvore de bloqueios: quem espera por qual sessão. |
+| **5 · Sessões** | `pg_stat_activity`: sessões de cliente com estado/espera/duração/query. **`c`** cancela a query (`pg_cancel_backend`), **`k`** encerra a conexão (`pg_terminate_backend`). |
+| **6 · Roles** | Roles do cluster (login, super, createdb/role, membros). **`n`** cria role/usuário (com senha, atributos), **`g`** faz grant a um database (CONNECT / ALL / owner / acesso total ao schema), **`D`** apaga role (confirmação por nome). |
 
 ```
 ┌ pgtui ──────────────────────────── postgres@192.168.1.242:5432 · admin db: postgres ┐
-│ 1 Dashboard   2 Bancos   3 Query   4 Locks                                          │
+│ 1 Dashboard  2 Bancos  3 Query  4 Locks  5 Sessões  6 Roles                         │
 │ ╭ CONEXÕES ─╮ ╭ CACHE HIT ╮ ╭ ARMAZENAMENTO ╮ ╭ UPTIME ─╮                           │
 │ │ 40 / 50   │ │ 100.00%   │ │ 217 MB        │ │ 2h 27m  │                           │
 │ ╰───────────╯ ╰───────────╯ ╰───────────────╯ ╰─────────╯                           │
 └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Gestão sem superusuário:** criar/dropar role e database e fazer grants
+> funcionam com um papel que tenha `CREATEROLE`/`CREATEDB` — não exige
+> superusuário. Toda ação destrutiva (apagar role/database) pede que você
+> **digite o nome** para confirmar; nada é apagado automaticamente.
 
 ## Requisitos
 
@@ -62,7 +69,7 @@ make run
 
 | Tecla | Ação |
 |-------|------|
-| `1`–`4` | trocar de aba |
+| `1`–`6` | trocar de aba |
 | `tab` / `shift+tab` | próxima / aba anterior |
 | `?` | ajuda (todos os atalhos) |
 | `q` / `ctrl+c` | sair |
@@ -71,6 +78,8 @@ make run
 | **Bancos** | |
 | `↑`/`↓` `j`/`k` | navegar |
 | `enter` | banco → tabelas → **dados da tabela** (leitura) |
+| `d` | describe da tabela (colunas, tipos, índices, constraints) |
+| `n` / `D` | criar / apagar database (apagar pede o nome) |
 | `esc` | voltar um nível |
 | `r` | recarregar |
 | **Dados da tabela** | |
@@ -80,12 +89,21 @@ make run
 | `r` | resetar para `SELECT *` |
 | **Query** | |
 | `i` / `enter` | focar o editor SQL |
-| `/` (em navegação) ou `ctrl+t` | trocar o database alvo — abre uma lista filtrável dos bancos do cluster |
+| `/` (em navegação) ou `ctrl+t` | trocar o database alvo — lista filtrável |
+| `x` | EXPLAIN (plano, sem executar) |
 | `ctrl+r` / `f5` | executar |
 | `esc` | sair do editor (foca os resultados) |
 | `↑`/`↓` | rolar o grid de resultados |
 | **Locks** | |
 | `r` | recarregar a árvore de bloqueios |
+| **Sessões** | |
+| `c` | cancelar a query da sessão (`pg_cancel_backend`) |
+| `k` | encerrar a conexão (`pg_terminate_backend`) |
+| `r` | atualizar |
+| **Roles** | |
+| `n` | criar role/usuário (nome, senha, login, createdb/role) |
+| `g` | grant a um database (CONNECT / ALL / owner / schema public) |
+| `D` | apagar role (pede o nome para confirmar) |
 
 ### Guarda contra operações destrutivas
 
@@ -98,6 +116,12 @@ O query runner classifica cada statement antes de executar:
 
 Não há nenhum caminho no TUI que apague bancos automaticamente — qualquer
 `DROP`/`TRUNCATE` só acontece se você digitá-lo e confirmá-lo.
+
+As ações de gestão nas abas **Bancos** e **Roles** seguem a mesma regra:
+apagar um database (`D`) ou um role (`D`) abre um diálogo que só confirma
+quando você **digita o nome exato** do objeto. Encerrar/cancelar sessão pede
+um `y`/`n`. As ações administrativas rodam no protocolo simples do pgx
+(necessário para `CREATE`/`DROP DATABASE`) e usam identificadores quotados.
 
 ## Desenvolvimento
 

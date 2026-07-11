@@ -182,6 +182,8 @@ func (v *queryView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "/":
 		return v.openTarget()
+	case "x":
+		return v.explain()
 	case "enter", "i", "e", "a":
 		v.mode = modeEdit
 		return v.editor.Focus()
@@ -314,6 +316,18 @@ func (v *queryView) submit() tea.Cmd {
 	return nil
 }
 
+// explain roda EXPLAIN (plano, sem executar) da query do editor. EXPLAIN é
+// read-only, então dispensa confirmação.
+func (v *queryView) explain() tea.Cmd {
+	sql := strings.TrimSpace(v.editor.Value())
+	if sql == "" {
+		v.status = stWarnV.Render("query vazia")
+		return nil
+	}
+	v.err = nil
+	return v.run("EXPLAIN " + sql)
+}
+
 func (v *queryView) execPending() tea.Cmd {
 	sql := v.pendingSQL
 	v.confirm.Blur()
@@ -374,7 +388,7 @@ func (v *queryView) FooterHints() string {
 	case modeEdit:
 		return hint("ctrl+r", "executar") + "   " + hint("ctrl+t", "trocar db") + "   " + hint("esc", "resultados")
 	default:
-		return hint("i", "editar") + "   " + hint("/", "trocar db") + "   " + hint("ctrl+r", "executar") + "   " + hint("↑↓", "rolar")
+		return hint("i", "editar") + "  " + hint("/", "trocar db") + "  " + hint("x", "explain") + "  " + hint("ctrl+r", "executar") + "  " + hint("↑↓", "rolar")
 	}
 }
 

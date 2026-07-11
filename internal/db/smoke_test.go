@@ -74,17 +74,17 @@ func TestSmoke(t *testing.T) {
 
 	// Classificador de segurança.
 	cases := map[string]db.Danger{
-		"select 1":                          db.Safe,
-		"  SELECT * from users where id=1":  db.Safe,
-		"update t set x=1 where id=2":       db.Write,
-		"update t set x=1":                  db.Critical,
-		"delete from t":                     db.Critical,
-		"delete from t where id=1":          db.Write,
-		"drop table foo":                    db.Critical,
-		"DROP DATABASE prod":                db.Critical,
-		"truncate t":                        db.Critical,
-		"insert into t values (1)":          db.Write,
-		"alter table t add column c int":    db.Write,
+		"select 1":                             db.Safe,
+		"  SELECT * from users where id=1":     db.Safe,
+		"update t set x=1 where id=2":          db.Write,
+		"update t set x=1":                     db.Critical,
+		"delete from t":                        db.Critical,
+		"delete from t where id=1":             db.Write,
+		"drop table foo":                       db.Critical,
+		"DROP DATABASE prod":                   db.Critical,
+		"truncate t":                           db.Critical,
+		"insert into t values (1)":             db.Write,
+		"alter table t add column c int":       db.Write,
 		"with x as (select 1) select * from x": db.Safe,
 	}
 	for sql, want := range cases {

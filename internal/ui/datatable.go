@@ -97,7 +97,7 @@ func (b *dataBrowser) Open(dbname, schema, tbl string) tea.Cmd {
 	b.err = nil
 	b.status = ""
 	b.colCursor, b.colOffset = 0, 0
-	b.baseSQL = "SELECT * FROM " + quoteIdent(schema) + "." + quoteIdent(tbl) + " LIMIT 1000"
+	b.baseSQL = "SELECT * FROM " + db.QuoteQualified(schema, tbl) + " LIMIT 1000"
 	b.currentSQL = b.baseSQL
 	b.grid.Focus()
 	return b.run(b.baseSQL)
@@ -200,8 +200,8 @@ func (b *dataBrowser) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
 			return b.run(b.baseSQL)
 		}
 		col := b.allCols[b.colCursor]
-		sql := "SELECT * FROM " + quoteIdent(b.schema) + "." + quoteIdent(b.table) +
-			" WHERE " + quoteIdent(col) + "::text ILIKE " + escapeLiteral("%"+term+"%") +
+		sql := "SELECT * FROM " + db.QuoteQualified(b.schema, b.table) +
+			" WHERE " + db.QuoteIdent(col) + "::text ILIKE " + db.QuoteLiteral("%"+term+"%") +
 			" LIMIT 1000"
 		b.status = "buscando '" + term + "' em " + col + "…"
 		return b.run(sql)
@@ -386,14 +386,4 @@ func (b *dataBrowser) View() string {
 		body = "\n  " + stStatus.Render("(0 linhas)")
 	}
 	return bar + "\n" + loc + meta + "\n" + body
-}
-
-// --- helpers SQL ---
-
-func quoteIdent(s string) string {
-	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
-}
-
-func escapeLiteral(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

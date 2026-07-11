@@ -198,6 +198,45 @@ func TestDataBrowserLive(t *testing.T) {
 	}
 }
 
+func TestSessionsAndRolesRender(t *testing.T) {
+	mgr := testManager(t)
+	defer mgr.Close()
+	cfg := &config.Config{Host: "h", Port: "5432", User: "postgres", AdminDB: "postgres", RefreshSeconds: 5}
+	var m tea.Model = New(cfg, mgr)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 130, Height: 40})
+
+	// Aba 5: Sessões
+	m, _ = m.Update(key("5"))
+	m, _ = m.Update(sessionsMsg{rows: []db.Session{
+		{PID: 123, User: "app", DB: "prod", State: "active", Duration: "00:00:05", Query: "select pg_sleep(9)"},
+	}})
+	assertContains(t, m.View(), "Sessões ativas", "123", "select pg_sleep")
+
+	// 'c' abre confirmação de cancelamento
+	m, _ = m.Update(key("c"))
+	assertContains(t, m.View(), "Cancelar query", "pid 123")
+	m, _ = m.Update(key("n")) // cancela o modal
+
+	// Aba 6: Roles
+	m, _ = m.Update(key("6"))
+	m, _ = m.Update(rolesMsg{rows: []db.Role{
+		{Name: "postgres", Super: true, CanLogin: true},
+		{Name: "app_user", CanLogin: true},
+	}})
+	m, _ = m.Update(databasesMsg{rows: []db.Database{{Name: "prod"}, {Name: "stage"}}})
+	assertContains(t, m.View(), "Roles do cluster", "postgres", "app_user")
+
+	// 'n' abre o formulário de criação
+	m, _ = m.Update(key("n"))
+	assertContains(t, m.View(), "Criar role", "Nome", "Senha")
+	m, _ = m.Update(key("esc"))
+
+	// 'g' abre o formulário de grant (com database selecionável)
+	m, _ = m.Update(key("g"))
+	assertContains(t, m.View(), "Grant", "Database", "Privilégio")
+	m, _ = m.Update(key("esc"))
+}
+
 // TestDashboardTickStartsOnce garante que reabrir a aba Dashboard não cria
 // múltiplos loops de auto-refresh (não precisa de DB — Init só monta comandos).
 func TestDashboardTickStartsOnce(t *testing.T) {

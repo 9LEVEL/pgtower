@@ -18,7 +18,7 @@ var (
 var (
 	stTitle = lipgloss.NewStyle().Bold(true).Foreground(colOnDark).Background(colAccent).Padding(0, 1)
 
-	stTabActive = lipgloss.NewStyle().Bold(true).Foreground(colOnDark).Background(colAccent).Padding(0, 2)
+	stTabActive   = lipgloss.NewStyle().Bold(true).Foreground(colOnDark).Background(colAccent).Padding(0, 2)
 	stTabInactive = lipgloss.NewStyle().Foreground(colMuted).Padding(0, 2)
 
 	stStatus  = lipgloss.NewStyle().Foreground(colMuted)
@@ -34,7 +34,7 @@ var (
 			BorderForeground(colBorder).
 			Padding(0, 1)
 
-	stGood = lipgloss.NewStyle().Foreground(colSuccess).Bold(true)
+	stGood  = lipgloss.NewStyle().Foreground(colSuccess).Bold(true)
 	stWarnV = lipgloss.NewStyle().Foreground(colWarn).Bold(true)
 	stBadV  = lipgloss.NewStyle().Foreground(colDanger).Bold(true)
 

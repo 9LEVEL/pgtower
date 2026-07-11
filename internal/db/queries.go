@@ -244,11 +244,11 @@ func ListBlocks(ctx context.Context, p Pinger) ([]BlockPair, error) {
 
 // QueryResult carrega o resultado de uma query ad-hoc.
 type QueryResult struct {
-	Columns  []string
-	Rows     [][]string
-	Command  string        // command tag (ex.: "UPDATE 3") para statements sem retorno
-	RowCount int           // linhas retornadas (SELECT) ou afetadas
-	Elapsed  time.Duration
+	Columns   []string
+	Rows      [][]string
+	Command   string // command tag (ex.: "UPDATE 3") para statements sem retorno
+	RowCount  int    // linhas retornadas (SELECT) ou afetadas
+	Elapsed   time.Duration
 	Truncated bool
 }
 

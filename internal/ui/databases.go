@@ -2,8 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -16,6 +18,7 @@ const (
 	modeDBList dbMode = iota
 	modeTables
 	modeTableData
+	modeDescribe
 )
 
 type databasesView struct {
@@ -31,6 +34,17 @@ type databasesView struct {
 	tblCount   int
 	tblTotal   string
 
+	// describe (\d) da tabela selecionada
+	descVP      viewport.Model
+	descTitle   string
+	descLoading bool
+
+	// criar database / dropar database
+	form          form
+	confirm       confirmModal
+	pendingDropDB string
+	status        string
+
 	loading bool
 	err     error
 
@@ -42,12 +56,17 @@ func newDatabasesView(mgr *db.Manager) *databasesView {
 	v.dbTable = newTable()
 	v.tblTable = newTable()
 	v.browser = newDataBrowser(mgr)
+	v.confirm = newConfirmModal()
+	v.descVP = viewport.New(80, 20)
 	return v
 }
 
 func (v *databasesView) Title() string { return "Bancos" }
 
 func (v *databasesView) CapturingInput() bool {
+	if v.form.active || v.confirm.active {
+		return true
+	}
 	return v.mode == modeTableData && v.browser.CapturingInput()
 }
 
@@ -66,6 +85,8 @@ func (v *databasesView) SetSize(w, h int) {
 	v.dbTable.SetHeight(tblH)
 	v.tblTable.SetHeight(tblH)
 	v.browser.SetSize(w, h)
+	v.descVP.Width = w - 2
+	v.descVP.Height = h - 2
 	v.layoutColumns()
 }
 
@@ -74,7 +95,6 @@ func (v *databasesView) layoutColumns() {
 	if w < 40 {
 		w = 40
 	}
-	// Bancos: nome | owner | tamanho | conexões
 	nameW := clampInt(w-40, 18, 48)
 	v.dbTable.SetColumns([]table.Column{
 		{Title: "DATABASE", Width: nameW},
@@ -82,7 +102,6 @@ func (v *databasesView) layoutColumns() {
 		{Title: "TAMANHO", Width: 12},
 		{Title: "CONEXÕES", Width: 9},
 	})
-	// Tabelas: schema | tabela | total | heap | índices | linhas (est.)
 	tnameW := clampInt(w-56, 16, 44)
 	v.tblTable.SetColumns([]table.Column{
 		{Title: "SCHEMA", Width: 12},
@@ -106,12 +125,15 @@ func (v *databasesView) Update(msg tea.Msg) tea.Cmd {
 				rows = append(rows, table.Row{d.Name, d.Owner, d.SizePretty, fmt.Sprintf("%d", d.Connections)})
 			}
 			v.dbTable.SetRows(rows)
+			if v.dbTable.Cursor() >= len(rows) {
+				v.dbTable.SetCursor(0)
+			}
 		}
 		return nil
 
 	case tablesMsg:
 		if msg.dbname != v.selectedDB {
-			return nil // resultado de outro banco; ignora
+			return nil
 		}
 		v.loading = false
 		v.err = msg.err
@@ -131,8 +153,27 @@ func (v *databasesView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case describeMsg:
+		v.descLoading = false
+		if msg.err != nil {
+			v.descVP.SetContent(stErr.Render("Erro ao descrever: " + msg.err.Error()))
+			return nil
+		}
+		v.descTitle = msg.desc.Schema + "." + msg.desc.Table
+		v.descVP.SetContent(buildDescribe(msg.desc))
+		v.descVP.GotoTop()
+		return nil
+
 	case tableDataMsg:
 		return v.browser.Update(msg)
+
+	case execMsg:
+		if msg.err != nil {
+			v.status = stErr.Render(fmt.Sprintf("✗ %s: %s", msg.action, collapseErr(msg.err.Error())))
+			return nil
+		}
+		v.status = stGood.Render("✓ " + msg.action + " ok")
+		return loadDatabases(v.mgr)
 
 	case tea.KeyMsg:
 		return v.handleKey(msg)
@@ -141,15 +182,42 @@ func (v *databasesView) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (v *databasesView) handleKey(msg tea.KeyMsg) tea.Cmd {
+	// Overlays têm prioridade.
+	if v.confirm.active {
+		switch v.confirm.update(msg) {
+		case confirmYes:
+			return execStatements(v.mgr, "", "dropar database "+v.pendingDropDB, []string{db.BuildDropDatabase(v.pendingDropDB)})
+		case confirmNo:
+			v.status = stStatus.Render("cancelado")
+		}
+		return nil
+	}
+	if v.form.active {
+		res, cmd := v.form.update(msg)
+		switch res {
+		case formSubmit:
+			return v.submitCreateDB()
+		case formCancel:
+		}
+		return cmd
+	}
+
 	if v.mode == modeTableData {
-		// esc no modo navegação do browser volta para a lista de tabelas;
-		// nos sub-modos (busca/query) o próprio browser trata o esc.
 		if msg.String() == "esc" && v.browser.mode == dataBrowse {
 			v.mode = modeTables
 			v.browser.grid.Blur()
 			return nil
 		}
 		return v.browser.Update(msg)
+	}
+	if v.mode == modeDescribe {
+		if msg.String() == "esc" {
+			v.mode = modeTables
+			return nil
+		}
+		var cmd tea.Cmd
+		v.descVP, cmd = v.descVP.Update(msg)
+		return cmd
 	}
 
 	switch v.mode {
@@ -166,6 +234,10 @@ func (v *databasesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 			v.err = nil
 			v.tblTable.SetRows(nil)
 			return loadTables(v.mgr, v.selectedDB)
+		case "n":
+			return v.openCreateDB()
+		case "D":
+			return v.askDropDB()
 		case "r":
 			return v.Init()
 		}
@@ -182,6 +254,16 @@ func (v *databasesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			v.mode = modeTableData
 			return v.browser.Open(v.selectedDB, row[0], row[1])
+		case "d":
+			row := v.tblTable.SelectedRow()
+			if row == nil {
+				return nil
+			}
+			v.mode = modeDescribe
+			v.descLoading = true
+			v.descTitle = row[0] + "." + row[1]
+			v.descVP.SetContent("carregando…")
+			return describeTable(v.mgr, v.selectedDB, row[0], row[1])
 		case "esc":
 			v.mode = modeDBList
 			v.err = nil
@@ -198,20 +280,62 @@ func (v *databasesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
+func (v *databasesView) openCreateDB() tea.Cmd {
+	return v.form.open("Criar database", []formField{
+		textField("name", "Nome", "ex.: app_prod"),
+		textField("owner", "Owner", "role dono (opcional)"),
+	})
+}
+
+func (v *databasesView) submitCreateDB() tea.Cmd {
+	name := strings.TrimSpace(v.form.value("name"))
+	if name == "" {
+		v.status = stWarnV.Render("nome obrigatório")
+		return nil
+	}
+	owner := strings.TrimSpace(v.form.value("owner"))
+	v.form.close()
+	return execStatements(v.mgr, "", "criar database "+name, []string{db.BuildCreateDatabase(name, owner)})
+}
+
+func (v *databasesView) askDropDB() tea.Cmd {
+	row := v.dbTable.SelectedRow()
+	if row == nil {
+		return nil
+	}
+	name := row[0]
+	v.pendingDropDB = name
+	body := fmt.Sprintf("Isto apaga o database %s e TODOS os seus dados.\nDigite o nome para confirmar:",
+		stBadV.Render(name))
+	return v.confirm.askCritical("⚠  DROP DATABASE", body, name)
+}
+
 func (v *databasesView) FooterHints() string {
 	switch v.mode {
 	case modeTableData:
 		return v.browser.FooterHints()
+	case modeDescribe:
+		return hint("esc", "voltar") + "   " + hint("↑↓", "rolar")
 	case modeTables:
-		return hint("enter", "ver dados") + "   " + hint("esc", "voltar") + "   " + hint("↑↓", "navegar") + "   " + hint("r", "recarregar")
+		return hint("enter", "ver dados") + "  " + hint("d", "describe") + "  " + hint("esc", "voltar") + "  " + hint("↑↓", "navegar") + "  " + hint("r", "recarregar")
 	default:
-		return hint("enter", "abrir tabelas") + "   " + hint("↑↓", "navegar") + "   " + hint("r", "recarregar")
+		return hint("enter", "tabelas") + "  " + hint("n", "criar db") + "  " + hint("D", "dropar db") + "  " + hint("↑↓", "navegar") + "  " + hint("r", "recarregar")
 	}
 }
 
 func (v *databasesView) View() string {
+	if v.form.active {
+		return v.form.view(v.width, v.height)
+	}
+	if v.confirm.active {
+		return v.confirm.view(v.width, v.height)
+	}
 	if v.mode == modeTableData {
 		return "\n" + v.browser.View()
+	}
+	if v.mode == modeDescribe {
+		title := lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render("Estrutura · " + v.descTitle)
+		return "\n" + title + "\n" + v.descVP.View()
 	}
 	if v.err != nil {
 		return "\n" + stErr.Render("Erro: "+v.err.Error())
@@ -237,7 +361,62 @@ func (v *databasesView) View() string {
 		if v.loading {
 			meta = stLabel.Render("  carregando…")
 		}
-		return "\n" + title + meta + "\n" + v.dbTable.View()
+		head := "\n" + title + meta
+		if v.status != "" {
+			head += "   " + v.status
+		}
+		return head + "\n" + v.dbTable.View()
+	}
+}
+
+// buildDescribe monta o texto do "\d" da tabela.
+func buildDescribe(d db.TableDescription) string {
+	var b strings.Builder
+	sec := lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render
+
+	b.WriteString(sec("Colunas"))
+	b.WriteString("\n")
+	for _, c := range d.Columns {
+		nn := ""
+		if !c.Nullable {
+			nn = stWarnV.Render(" not null")
+		}
+		def := ""
+		if c.Default != "" {
+			def = stKeyHint.Render(" default " + c.Default)
+		}
+		b.WriteString(fmt.Sprintf("  %s  %s%s%s\n",
+			stValue.Render(pad(c.Name, 24)), stLabel.Render(c.Type), nn, def))
+	}
+
+	if len(d.Indexes) > 0 {
+		b.WriteString("\n" + sec("Índices") + "\n")
+		for _, i := range d.Indexes {
+			b.WriteString("  " + stValue.Render(i.Name) + stKeyHint.Render("  "+i.Def) + "\n")
+		}
+	}
+	if len(d.Constraints) > 0 {
+		b.WriteString("\n" + sec("Constraints") + "\n")
+		for _, c := range d.Constraints {
+			b.WriteString(fmt.Sprintf("  %s %s %s\n",
+				stLabel.Render("["+constraintKind(c.Type)+"]"), stValue.Render(c.Name), stKeyHint.Render(c.Def)))
+		}
+	}
+	return b.String()
+}
+
+func constraintKind(t string) string {
+	switch t {
+	case "p":
+		return "PK"
+	case "f":
+		return "FK"
+	case "u":
+		return "UNIQUE"
+	case "c":
+		return "CHECK"
+	default:
+		return t
 	}
 }
 
@@ -261,7 +440,6 @@ func newTable() table.Model {
 	return t
 }
 
-// estRows formata a estimativa de linhas; -1 significa "nunca analisada".
 func estRows(n int64) string {
 	if n < 0 {
 		return "?"

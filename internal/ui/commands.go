@@ -43,6 +43,35 @@ type tableDataMsg struct {
 	err   error
 }
 
+type sessionsMsg struct {
+	rows []db.Session
+	err  error
+}
+
+type sessionActionMsg struct {
+	action string // "cancelar" | "encerrar"
+	pid    int32
+	ok     bool
+	err    error
+}
+
+type rolesMsg struct {
+	rows []db.Role
+	err  error
+}
+
+type describeMsg struct {
+	desc db.TableDescription
+	err  error
+}
+
+// execMsg é o resultado de uma ação administrativa (create/drop/grant).
+type execMsg struct {
+	action string
+	tag    string
+	err    error
+}
+
 type tickMsg time.Time
 
 const (
@@ -128,6 +157,87 @@ func loadTableData(mgr *db.Manager, dbname, sql string, token int) tea.Cmd {
 		}
 		res, err := db.RunQuery(ctx, p, sql)
 		return tableDataMsg{token: token, res: res, err: err}
+	}
+}
+
+func loadSessions(mgr *db.Manager) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), clusterTimeout)
+		defer cancel()
+		p, err := mgr.Pool(ctx, mgr.AdminDB())
+		if err != nil {
+			return sessionsMsg{err: err}
+		}
+		rows, err := db.ListSessions(ctx, p)
+		return sessionsMsg{rows: rows, err: err}
+	}
+}
+
+func sessionAction(mgr *db.Manager, action string, pid int32) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), clusterTimeout)
+		defer cancel()
+		p, err := mgr.Pool(ctx, mgr.AdminDB())
+		if err != nil {
+			return sessionActionMsg{action: action, pid: pid, err: err}
+		}
+		var ok bool
+		if action == "encerrar" {
+			ok, err = db.TerminateBackend(ctx, p, pid)
+		} else {
+			ok, err = db.CancelBackend(ctx, p, pid)
+		}
+		return sessionActionMsg{action: action, pid: pid, ok: ok, err: err}
+	}
+}
+
+func loadRoles(mgr *db.Manager) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), clusterTimeout)
+		defer cancel()
+		p, err := mgr.Pool(ctx, mgr.AdminDB())
+		if err != nil {
+			return rolesMsg{err: err}
+		}
+		rows, err := db.ListRoles(ctx, p)
+		return rolesMsg{rows: rows, err: err}
+	}
+}
+
+func describeTable(mgr *db.Manager, dbname, schema, table string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), clusterTimeout)
+		defer cancel()
+		p, err := mgr.Pool(ctx, dbname)
+		if err != nil {
+			return describeMsg{err: err}
+		}
+		d, err := db.DescribeTable(ctx, p, schema, table)
+		return describeMsg{desc: d, err: err}
+	}
+}
+
+// execStatements roda uma sequência de statements (admin) no database indicado
+// (dbname vazio = admin db), parando no primeiro erro.
+func execStatements(mgr *db.Manager, dbname, action string, stmts []string) tea.Cmd {
+	return func() tea.Msg {
+		if dbname == "" {
+			dbname = mgr.AdminDB()
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+		defer cancel()
+		p, err := mgr.Pool(ctx, dbname)
+		if err != nil {
+			return execMsg{action: action, err: err}
+		}
+		var tag string
+		for _, s := range stmts {
+			tag, err = db.ExecAdmin(ctx, p, s)
+			if err != nil {
+				return execMsg{action: action, err: err}
+			}
+		}
+		return execMsg{action: action, tag: tag}
 	}
 }
 

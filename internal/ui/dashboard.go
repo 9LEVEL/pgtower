@@ -34,9 +34,9 @@ func newDashboardView(cfg *config.Config, mgr *db.Manager) *dashboardView {
 	}
 }
 
-func (v *dashboardView) Title() string          { return "Dashboard" }
-func (v *dashboardView) CapturingInput() bool    { return false }
-func (v *dashboardView) SetSize(w, h int)         { v.width, v.height = w, h }
+func (v *dashboardView) Title() string        { return "Dashboard" }
+func (v *dashboardView) CapturingInput() bool { return false }
+func (v *dashboardView) SetSize(w, h int)     { v.width, v.height = w, h }
 
 func (v *dashboardView) Init() tea.Cmd {
 	// O tick se auto-reagenda em Update; iniciá-lo só uma vez evita acumular
