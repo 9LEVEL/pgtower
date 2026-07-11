@@ -86,7 +86,9 @@ func (v *queryView) CapturingInput() bool {
 	return v.mode == modeEdit || v.mode == modeConfirm || v.mode == modeTarget
 }
 
-func (v *queryView) Init() tea.Cmd { return textarea.Blink }
+// Init não precisa devolver comando: a aba entra em modo navegação (editor
+// desfocado) e o textarea cuida do próprio blink ao ser focado.
+func (v *queryView) Init() tea.Cmd { return nil }
 
 func (v *queryView) SetSize(w, h int) {
 	v.width, v.height = w, h

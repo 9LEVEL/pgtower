@@ -21,6 +21,7 @@ type dashboardView struct {
 	err      error
 	updated  time.Time
 	interval time.Duration
+	started  bool // garante um único loop de tick
 
 	width, height int
 }
@@ -38,6 +39,13 @@ func (v *dashboardView) CapturingInput() bool    { return false }
 func (v *dashboardView) SetSize(w, h int)         { v.width, v.height = w, h }
 
 func (v *dashboardView) Init() tea.Cmd {
+	// O tick se auto-reagenda em Update; iniciá-lo só uma vez evita acumular
+	// loops de auto-refresh a cada vez que a aba é reaberta. Reaberturas
+	// posteriores apenas disparam um refresh imediato.
+	if v.started {
+		return loadDashboard(v.mgr)
+	}
+	v.started = true
 	return tea.Batch(loadDashboard(v.mgr), tick(v.interval))
 }
 

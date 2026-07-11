@@ -198,6 +198,26 @@ func TestDataBrowserLive(t *testing.T) {
 	}
 }
 
+// TestDashboardTickStartsOnce garante que reabrir a aba Dashboard não cria
+// múltiplos loops de auto-refresh (não precisa de DB — Init só monta comandos).
+func TestDashboardTickStartsOnce(t *testing.T) {
+	d := newDashboardView(&config.Config{RefreshSeconds: 5}, nil)
+	if d.started {
+		t.Fatal("started deveria começar false")
+	}
+	d.Init()
+	if !d.started {
+		t.Fatal("primeira Init() deveria marcar started=true (inicia o tick)")
+	}
+	// Reaberturas seguintes não devem reiniciar o flag (não duplicam o tick).
+	for i := 0; i < 5; i++ {
+		d.Init()
+	}
+	if !d.started {
+		t.Fatal("started deveria permanecer true")
+	}
+}
+
 func assertContains(t *testing.T, s string, subs ...string) {
 	t.Helper()
 	for _, sub := range subs {
