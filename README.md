@@ -6,7 +6,7 @@ Conecta em um cluster via `DATABASE_URL` e oferece, em quatro abas:
 | Aba | O que faz |
 |-----|-----------|
 | **1 · Dashboard** | Saúde do cluster: conexões vs `max_connections`, cache hit ratio, uptime, tamanho total, commits/rollbacks, versão, query ativa mais longa e replicação. Auto-refresh. |
-| **2 · Bancos** | Lista os databases (owner, tamanho, conexões) e, ao entrar num banco, suas tabelas com tamanho total / heap / índices e estimativa de linhas. |
+| **2 · Bancos** | Lista os databases (owner, tamanho, conexões) → tabelas (tamanho total / heap / índices / linhas) → **dados da tabela em modo leitura**: grid com scroll horizontal de colunas (`←→`), busca na coluna ativa (`/` → `ILIKE`) e barra de query no topo (`e`) para consultas customizadas somente-leitura. |
 | **3 · Query** | Editor SQL com grid de resultados paginado. Statements de **escrita** pedem confirmação; **destrutivos** (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` sem `WHERE`) exigem digitar `sim`. |
 | **4 · Locks** | Árvore de bloqueios: quem está esperando por qual sessão. |
 
@@ -70,9 +70,14 @@ make run
 | `r` | atualizar agora (auto a cada `PGTUI_REFRESH_SECONDS`) |
 | **Bancos** | |
 | `↑`/`↓` `j`/`k` | navegar |
-| `enter` | abrir tabelas do banco selecionado |
-| `esc` | voltar para a lista de bancos |
+| `enter` | banco → tabelas → **dados da tabela** (leitura) |
+| `esc` | voltar um nível |
 | `r` | recarregar |
+| **Dados da tabela** | |
+| `←`/`→` `h`/`l` | navegar entre colunas (scroll horizontal) |
+| `/` | buscar na coluna ativa (`ILIKE '%termo%'`) |
+| `e` / `:` | editar a query do topo (somente leitura) |
+| `r` | resetar para `SELECT *` |
 | **Query** | |
 | `i` / `enter` | focar o editor SQL |
 | `/` (em navegação) ou `ctrl+t` | trocar o database alvo — abre uma lista filtrável dos bancos do cluster |

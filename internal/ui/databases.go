@@ -15,6 +15,7 @@ type dbMode int
 const (
 	modeDBList dbMode = iota
 	modeTables
+	modeTableData
 )
 
 type databasesView struct {
@@ -23,6 +24,7 @@ type databasesView struct {
 	mode     dbMode
 	dbTable  table.Model
 	tblTable table.Model
+	browser  *dataBrowser
 
 	dbs        []db.Database
 	selectedDB string
@@ -39,11 +41,15 @@ func newDatabasesView(mgr *db.Manager) *databasesView {
 	v := &databasesView{mgr: mgr}
 	v.dbTable = newTable()
 	v.tblTable = newTable()
+	v.browser = newDataBrowser(mgr)
 	return v
 }
 
-func (v *databasesView) Title() string       { return "Bancos" }
-func (v *databasesView) CapturingInput() bool { return false }
+func (v *databasesView) Title() string { return "Bancos" }
+
+func (v *databasesView) CapturingInput() bool {
+	return v.mode == modeTableData && v.browser.CapturingInput()
+}
 
 func (v *databasesView) Init() tea.Cmd {
 	v.loading = true
@@ -59,6 +65,7 @@ func (v *databasesView) SetSize(w, h int) {
 	}
 	v.dbTable.SetHeight(tblH)
 	v.tblTable.SetHeight(tblH)
+	v.browser.SetSize(w, h)
 	v.layoutColumns()
 }
 
@@ -124,6 +131,9 @@ func (v *databasesView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case tableDataMsg:
+		return v.browser.Update(msg)
+
 	case tea.KeyMsg:
 		return v.handleKey(msg)
 	}
@@ -131,6 +141,17 @@ func (v *databasesView) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (v *databasesView) handleKey(msg tea.KeyMsg) tea.Cmd {
+	if v.mode == modeTableData {
+		// esc no modo navegação do browser volta para a lista de tabelas;
+		// nos sub-modos (busca/query) o próprio browser trata o esc.
+		if msg.String() == "esc" && v.browser.mode == dataBrowse {
+			v.mode = modeTables
+			v.browser.grid.Blur()
+			return nil
+		}
+		return v.browser.Update(msg)
+	}
+
 	switch v.mode {
 	case modeDBList:
 		switch msg.String() {
@@ -154,6 +175,13 @@ func (v *databasesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case modeTables:
 		switch msg.String() {
+		case "enter":
+			row := v.tblTable.SelectedRow()
+			if row == nil {
+				return nil
+			}
+			v.mode = modeTableData
+			return v.browser.Open(v.selectedDB, row[0], row[1])
 		case "esc":
 			v.mode = modeDBList
 			v.err = nil
@@ -172,14 +200,19 @@ func (v *databasesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 func (v *databasesView) FooterHints() string {
 	switch v.mode {
+	case modeTableData:
+		return v.browser.FooterHints()
 	case modeTables:
-		return hint("esc", "voltar") + "   " + hint("↑↓", "navegar") + "   " + hint("r", "recarregar")
+		return hint("enter", "ver dados") + "   " + hint("esc", "voltar") + "   " + hint("↑↓", "navegar") + "   " + hint("r", "recarregar")
 	default:
 		return hint("enter", "abrir tabelas") + "   " + hint("↑↓", "navegar") + "   " + hint("r", "recarregar")
 	}
 }
 
 func (v *databasesView) View() string {
+	if v.mode == modeTableData {
+		return "\n" + v.browser.View()
+	}
 	if v.err != nil {
 		return "\n" + stErr.Render("Erro: "+v.err.Error())
 	}

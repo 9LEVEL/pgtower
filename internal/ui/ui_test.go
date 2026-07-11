@@ -116,6 +116,69 @@ func TestQueryDatabasePicker(t *testing.T) {
 	assertContains(t, m.View(), "alvo:", "b_fusion", "alvo alterado para b_fusion")
 }
 
+func TestDataBrowserLive(t *testing.T) {
+	mgr := testManager(t)
+	defer mgr.Close()
+
+	b := newDataBrowser(mgr)
+	b.SetSize(120, 30)
+
+	// pg_catalog.pg_class existe em qualquer database e tem muitas colunas.
+	msg := b.Open("postgres", "pg_catalog", "pg_class")()
+	b.Update(msg)
+	if b.err != nil {
+		t.Fatalf("Open: %v", b.err)
+	}
+	if len(b.allCols) < 5 || len(b.allRows) == 0 {
+		t.Fatalf("esperava várias colunas e linhas, veio cols=%d rows=%d", len(b.allCols), len(b.allRows))
+	}
+
+	// navegação de colunas: →→ avança o cursor e mantém dentro dos limites.
+	b.Update(key("right"))
+	b.Update(key("right"))
+	if b.colCursor != 2 {
+		t.Errorf("colCursor após 2×→ = %d, quero 2", b.colCursor)
+	}
+	b.Update(key("left"))
+	if b.colCursor != 1 {
+		t.Errorf("colCursor após ←  = %d, quero 1", b.colCursor)
+	}
+
+	if !strings.Contains(b.View(), "pg_catalog.pg_class") {
+		t.Errorf("View() não mostra o local da tabela:\n%s", b.View())
+	}
+
+	// busca na coluna 'relname' pelo próprio nome da tabela -> >=1 linha.
+	relname := -1
+	for i, c := range b.allCols {
+		if c == "relname" {
+			relname = i
+		}
+	}
+	if relname < 0 {
+		t.Fatal("coluna relname não encontrada")
+	}
+	b.colCursor = relname
+	b.mode = dataSearch
+	b.search.SetValue("pg_class")
+	rmsg := b.handleSearchKey(tea.KeyMsg{Type: tea.KeyEnter})()
+	b.Update(rmsg)
+	if b.err != nil {
+		t.Fatalf("busca de coluna: %v", b.err)
+	}
+	if b.rowCount < 1 {
+		t.Errorf("busca 'pg_class' em relname trouxe %d linhas, esperava >=1", b.rowCount)
+	}
+
+	// barra de query recusa escrita (somente leitura).
+	b.mode = dataQuery
+	b.queryBar.SetValue("drop table foo")
+	b.handleQueryKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(b.status, "somente leitura") {
+		t.Errorf("query bar deveria recusar escrita, status=%q", b.status)
+	}
+}
+
 func assertContains(t *testing.T, s string, subs ...string) {
 	t.Helper()
 	for _, sub := range subs {

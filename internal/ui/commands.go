@@ -37,6 +37,12 @@ type queryMsg struct {
 	err error
 }
 
+type tableDataMsg struct {
+	token int
+	res   db.QueryResult
+	err   error
+}
+
 type tickMsg time.Time
 
 const (
@@ -107,6 +113,21 @@ func runQuery(mgr *db.Manager, dbname, sql string) tea.Cmd {
 		}
 		res, err := db.RunQuery(ctx, p, sql)
 		return queryMsg{res: res, err: err}
+	}
+}
+
+// loadTableData roda uma query (read-only, do navegador de dados) num database
+// específico. token permite descartar resultados obsoletos.
+func loadTableData(mgr *db.Manager, dbname, sql string, token int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+		defer cancel()
+		p, err := mgr.Pool(ctx, dbname)
+		if err != nil {
+			return tableDataMsg{token: token, err: err}
+		}
+		res, err := db.RunQuery(ctx, p, sql)
+		return tableDataMsg{token: token, res: res, err: err}
 	}
 }
 
