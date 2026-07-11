@@ -148,6 +148,25 @@ func TestDataBrowserLive(t *testing.T) {
 		t.Errorf("View() não mostra o local da tabela:\n%s", b.View())
 	}
 
+	// Regressão: percorrer TODAS as colunas cruza as fronteiras da janela
+	// horizontal (onde a contagem de colunas visíveis muda) — antes isso
+	// estourava um índice no render do bubbles table. View() força o render.
+	b.SetSize(80, 24) // largura menor => mais trocas de janela
+	b.colCursor, b.colOffset = 0, 0
+	b.buildGrid()
+	for i := 0; i < len(b.allCols)+3; i++ {
+		b.Update(key("right"))
+		_ = b.View()
+	}
+	for i := 0; i < len(b.allCols)+3; i++ {
+		b.Update(key("left"))
+		_ = b.View()
+	}
+	if b.colCursor != 0 {
+		t.Errorf("após voltar todas as colunas, colCursor=%d, quero 0", b.colCursor)
+	}
+	b.SetSize(120, 30)
+
 	// busca na coluna 'relname' pelo próprio nome da tabela -> >=1 linha.
 	relname := -1
 	for i, c := range b.allCols {

@@ -289,8 +289,8 @@ func (b *dataBrowser) ensureVisible() {
 // buildGrid recorta a janela horizontal de colunas e alimenta o grid.
 func (b *dataBrowser) buildGrid() {
 	if len(b.allCols) == 0 {
-		b.grid.SetColumns([]table.Column{{Title: "", Width: 10}})
 		b.grid.SetRows(nil)
+		b.grid.SetColumns([]table.Column{{Title: "", Width: 10}})
 		return
 	}
 	b.ensureVisible()
@@ -322,6 +322,10 @@ func (b *dataBrowser) buildGrid() {
 		}
 		rows[r] = table.Row(cells)
 	}
+	// Ordem importa: o bubbles table renderiza a cada setter. Zerar as linhas
+	// antes de trocar as colunas evita um render intermediário com contagem de
+	// células ≠ contagem de colunas (índice fora do range em renderRow).
+	b.grid.SetRows(nil)
 	b.grid.SetColumns(cols)
 	b.grid.SetRows(rows)
 	if cur >= 0 && cur < len(rows) {
