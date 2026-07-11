@@ -1,0 +1,12 @@
+# binários
+/pgtui
+/bin/
+/dist/
+
+# segredos / ambiente
+.env
+.env.prod
+*.local
+
+# go
+/vendor/
