@@ -90,8 +90,12 @@ func (v *dashboardView) View() string {
 
 	// --- top cards ---
 	connValue := fmt.Sprintf("%d / %d", d.TotalConns, d.MaxConns)
+	connHead := colorConns(d.TotalConns, d.MaxConns, connValue)
+	if d.Reserved > 0 {
+		connHead += stLabel.Render(fmt.Sprintf("  ·  resv %d", d.Reserved))
+	}
 	connCard := v.card("Connections", []string{
-		colorConns(d.TotalConns, d.MaxConns, connValue),
+		connHead,
 		stLabel.Render(fmt.Sprintf("active %d · idle %d · tx %d", d.Active, d.Idle, d.IdleInTx)),
 	})
 
@@ -154,7 +158,43 @@ func (v *dashboardView) View() string {
 	b.WriteString(row1)
 	b.WriteString("\n\n")
 	b.WriteString(row2)
+	if adv := v.connAdvisor(d); adv != "" {
+		b.WriteString("\n\n")
+		b.WriteString(adv)
+	}
 	return b.String()
+}
+
+// connAdvisor renders the connection-usage findings (Unit 1 advisor) so the
+// dashboard tells the operator what to do, not just the raw numbers.
+func (v *dashboardView) connAdvisor(d db.DashboardData) string {
+	findings := db.AnalyzeConnections(db.ConnHeadroom{
+		MaxConnections: d.MaxConns,
+		Reserved:       d.Reserved,
+		Used:           d.TotalConns,
+		Active:         d.Active,
+		Idle:           d.Idle,
+		IdleInTx:       d.IdleInTx,
+	})
+	if len(findings) == 0 {
+		return ""
+	}
+	title := lipgloss.NewStyle().Foreground(colMuted).Bold(true).Render("CONNECTION ADVISOR")
+	wrapW := clampInt(v.width-4, 20, 108)
+	lines := make([]string, 0, len(findings))
+	for _, f := range findings {
+		mark := stLabel
+		switch f.Level {
+		case "crit":
+			mark = stBadV
+		case "warn":
+			mark = stWarnV
+		case "info":
+			mark = stGood
+		}
+		lines = append(lines, mark.Render("●")+" "+lipgloss.NewStyle().Width(wrapW).Render(f.Msg))
+	}
+	return title + "\n" + strings.Join(lines, "\n")
 }
 
 // card renders a card with a title and content lines.

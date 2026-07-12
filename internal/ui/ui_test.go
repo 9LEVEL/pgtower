@@ -304,6 +304,56 @@ func TestRolesResetPasswordFlow(t *testing.T) {
 	assertContains(t, v.View(), "Cluster roles")
 }
 
+// TestDashboardConnAdvisor checks the Unit 1 connection advisor renders on the
+// dashboard for a near-limit, idle-dominated cluster (the 47/50 scenario).
+func TestDashboardConnAdvisor(t *testing.T) {
+	d := newDashboardView(&config.Config{}, nil)
+	d.SetSize(120, 40)
+	d.Update(dashboardMsg{data: db.DashboardData{
+		Version: "PostgreSQL 18.4", MaxConns: 50, Reserved: 3,
+		TotalConns: 47, Active: 5, Idle: 40, IdleInTx: 2,
+		TotalSize: "1 MB", StartedAt: time.Now(),
+	}})
+	view := d.View()
+	assertContains(t, view, "resv 3", "CONNECTION ADVISOR",
+		"at the limit", "PgBouncer", "idle in transaction")
+
+	// A healthy cluster shows only the info line, no scary findings.
+	d.Update(dashboardMsg{data: db.DashboardData{
+		Version: "PostgreSQL 18.4", MaxConns: 100, Reserved: 3,
+		TotalConns: 12, Active: 3, Idle: 9, TotalSize: "1 MB", StartedAt: time.Now(),
+	}})
+	healthy := d.View()
+	assertContains(t, healthy, "healthy headroom")
+	if strings.Contains(healthy, "PgBouncer") {
+		t.Error("healthy cluster should not nag about pooling")
+	}
+}
+
+// TestRolesConnLimitFlow drives Enter → menu → set connection limit and checks
+// the CONN column renders (∞ for unlimited).
+func TestRolesConnLimitFlow(t *testing.T) {
+	v := newRolesView(&config.Config{}, nil)
+	v.SetSize(120, 40)
+	v.Update(rolesMsg{rows: []db.Role{
+		{Name: "app_user", CanLogin: true, ConnLimit: -1},
+		{Name: "svc", CanLogin: true, ConnLimit: 30},
+	}})
+	assertContains(t, v.View(), "CONN", "∞", "30")
+
+	v.Update(key("enter")) // open manage menu
+	assertContains(t, v.View(), "Manage role", "Set connection limit")
+
+	v.Update(key("down"))  // move to "Set connection limit"
+	v.Update(key("enter")) // select it -> opens the limit form
+	assertContains(t, v.View(), "Connection limit", "app_user")
+
+	v.Update(key("enter")) // submit the prefilled -1 (valid) -> exec cmd (ignored)
+	if v.form.active {
+		t.Error("form should close after submitting a valid connection limit")
+	}
+}
+
 // TestRolesMenuCancel checks that esc dismisses the manage menu without action.
 func TestRolesMenuCancel(t *testing.T) {
 	v := newRolesView(&config.Config{}, nil)

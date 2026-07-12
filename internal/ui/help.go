@@ -66,7 +66,7 @@ func helpBody() string {
 		{"r", "refresh"},
 		{"", ""},
 		{"Roles", ""},
-		{"enter", "manage role: reset password (generates a random one)"},
+		{"enter", "manage role: reset password / set connection limit"},
 		{"n", "create role/user"},
 		{"g", "grant to a database"},
 		{"D", "drop role (type the name to confirm)"},

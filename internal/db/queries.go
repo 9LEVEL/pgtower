@@ -19,6 +19,7 @@ type DashboardData struct {
 	StartedAt     time.Time
 	Uptime        time.Duration
 	MaxConns      int
+	Reserved      int // superuser_reserved_connections (+ reserved_connections, PG16)
 	TotalConns    int
 	Active        int
 	Idle          int
@@ -59,14 +60,16 @@ func LoadDashboard(ctx context.Context, p Pinger) (DashboardData, error) {
 			(select count(*) from pg_database where not datistemplate),
 			(select pg_size_pretty(coalesce(sum(pg_database_size(datname)), 0)) from pg_database),
 			coalesce((select extract(epoch from max(now() - query_start))
-			          from pg_stat_activity where state = 'active'), 0)::float8
+			          from pg_stat_activity where state = 'active'), 0)::float8,
+			(select setting::int from pg_settings where name = 'superuser_reserved_connections')
+			  + coalesce((select setting::int from pg_settings where name = 'reserved_connections'), 0)
 		from pg_stat_database`)
 
 	var longestSecs float64
 	if err := row.Scan(
 		&d.Version, &d.StartedAt, &d.MaxConns, &d.TotalConns,
 		&d.Active, &d.Idle, &d.IdleInTx, &d.CacheHitRatio,
-		&d.Commits, &d.Rollbacks, &d.DBCount, &d.TotalSize, &longestSecs,
+		&d.Commits, &d.Rollbacks, &d.DBCount, &d.TotalSize, &longestSecs, &d.Reserved,
 	); err != nil {
 		return d, err
 	}

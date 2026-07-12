@@ -42,12 +42,12 @@ for the management actions.
 
 | Tab | What it does |
 |-----|--------------|
-| **1 · Dashboard** | Cluster health: connections vs `max_connections`, cache hit ratio, uptime, total size, commits/rollbacks, version, longest active query, replication. Auto-refresh. |
+| **1 · Dashboard** | Cluster health: connections vs `max_connections` (with reserved slots), cache hit ratio, uptime, total size, commits/rollbacks, version, longest active query, replication. A **connection advisor** flags near-limit/idle-dominated/idle-in-transaction situations and tells you what to do. Auto-refresh. |
 | **2 · Databases** | Databases (owner, size, connections) → tables → **read-only data browser** (horizontal column scroll `←→`, per-column search `/`, top query bar `e`). Create (`n`) / drop (`D`) databases and `d` for a table's structure (columns, indexes, constraints). |
 | **3 · Query** | SQL editor with a paged result grid. `x` runs **EXPLAIN** (plan only). Writes require confirmation; destructive statements (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` without `WHERE`) require typing `yes`. |
 | **4 · Locks** | Blocking tree: which session waits on which. |
 | **5 · Sessions** | `pg_stat_activity` with state/wait/duration/query. `c` cancels the query, `k` terminates the connection. |
-| **6 · Roles** | Roles with login/super/createdb attributes. `enter` **manage** the selected role (reset password — generates a random 32-char one, shown once), `n` create, `g` grant to a database, `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss). |
+| **6 · Roles** | Roles with login/super/createdb attributes and their connection limit (`CONN`, ∞ = unlimited). `enter` **manage** the selected role (reset password — generates a random 32-char one, shown once; or set the connection limit), `n` create, `g` grant to a database, `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss). |
 
 ## Install
 
@@ -123,7 +123,7 @@ Press `?` in the app for the full, scrollable list.
 | `c` | cancel the session's query (`pg_cancel_backend`) |
 | `k` | terminate the connection (`pg_terminate_backend`) |
 | **Roles** | |
-| `enter` | manage role: reset password (generates a random 32-char password, shown once) |
+| `enter` | manage role: reset password (random 32-char, shown once) / set connection limit |
 | `n` | create role/user |
 | `g` | grant to a database (CONNECT / ALL / owner / public schema) |
 | `D` | drop role (asks for the name) |

@@ -1,0 +1,26 @@
+# Local, disposable PostgreSQL 18 cluster for developing and testing pgtui.
+# NOT for production. It runs a superuser-enabled instance so the tuning and
+# pg_hba live tests (ALTER SYSTEM, adminpack) can exercise a throwaway cluster.
+#
+#   docker compose up -d
+#   export DATABASE_URL='postgres://postgres:pgtui_test@127.0.0.1:5432/postgres?sslmode=disable'
+#   go test ./...
+#
+# TimescaleDB is not required for these tests (the official image ships the
+# contrib modules, incl. adminpack). Swap the image for timescale/timescaledb-ha
+# if you want to mirror a Timescale cluster.
+services:
+  postgres:
+    image: postgres:18
+    container_name: pgtui-test-pg
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pgtui_test
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 40

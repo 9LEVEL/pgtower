@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -17,6 +18,7 @@ const (
 	formCreateRole
 	formGrant
 	formForceDrop
+	formConnLimit
 )
 
 // confirm kinds distinguish which pending action the shared confirm modal is
@@ -28,9 +30,15 @@ const (
 )
 
 // role actions offered by the "Enter → manage" menu (indexes into roleMenuItems).
-const menuResetPassword = 0
+const (
+	menuResetPassword = iota
+	menuSetConnLimit
+)
 
-var roleMenuItems = []string{"Reset password (generate random)"}
+var roleMenuItems = []string{
+	"Reset password (generate random)",
+	"Set connection limit",
+}
 
 // newPasswordLen is the length of a generated password (letters + digits).
 const newPasswordLen = 32
@@ -53,6 +61,7 @@ type rolesView struct {
 	pendingDropRole  string
 	pendingForceRole string
 	pendingPwdRole   string
+	pendingLimitRole string
 	newPassword      string
 	pwdIterations    int
 
@@ -86,13 +95,14 @@ func (v *rolesView) SetSize(w, h int) {
 		th = 3
 	}
 	v.tbl.SetHeight(th)
-	nameW := clampInt(w-58, 16, 40)
+	nameW := clampInt(w-64, 16, 40)
 	v.tbl.SetColumns([]table.Column{
 		{Title: "ROLE", Width: nameW},
 		{Title: "LOGIN", Width: 6},
 		{Title: "SUPER", Width: 6},
 		{Title: "CREATEDB", Width: 9},
 		{Title: "CREATEROLE", Width: 11},
+		{Title: "CONN", Width: 5},
 		{Title: "MEMBER OF", Width: 22},
 	})
 }
@@ -107,7 +117,8 @@ func (v *rolesView) Update(msg tea.Msg) tea.Cmd {
 			rows := make([]table.Row, 0, len(msg.rows))
 			for _, r := range msg.rows {
 				rows = append(rows, table.Row{
-					r.Name, yesno(r.CanLogin), yesno(r.Super), yesno(r.CreateDB), yesno(r.CreateRole), r.MemberOf,
+					r.Name, yesno(r.CanLogin), yesno(r.Super), yesno(r.CreateDB), yesno(r.CreateRole),
+					connLimitStr(r.ConnLimit), r.MemberOf,
 				})
 			}
 			v.tbl.SetRows(rows)
@@ -294,8 +305,26 @@ func (v *rolesView) runMenuAction(idx int) tea.Cmd {
 	switch idx {
 	case menuResetPassword:
 		return v.askResetPassword()
+	case menuSetConnLimit:
+		return v.openConnLimitForm()
 	}
 	return nil
+}
+
+// openConnLimitForm opens the connection-limit editor for the selected role,
+// pre-filled with the current limit (-1 = unlimited).
+func (v *rolesView) openConnLimitForm() tea.Cmd {
+	role, ok := v.selectedRole()
+	if !ok {
+		v.menu.close()
+		return nil
+	}
+	v.menu.close()
+	v.pendingLimitRole = role.Name
+	v.formKind = formConnLimit
+	f := textField("limit", "Connection limit", "-1 = unlimited")
+	f.input.SetValue(strconv.Itoa(role.ConnLimit))
+	return v.form.open("Connection limit · "+role.Name, []formField{f})
 }
 
 // askResetPassword confirms before generating and applying a new password.
@@ -412,6 +441,18 @@ func (v *rolesView) submitForm() tea.Cmd {
 		v.formKind = formNoneKind
 		v.status = stWarnV.Render("reassigning ownership and removing " + doomed + "…")
 		return forceDropRole(v.mgr, doomed, successor)
+
+	case formConnLimit:
+		raw := strings.TrimSpace(v.form.value("limit"))
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < -1 {
+			v.status = stWarnV.Render("enter an integer ≥ -1 (-1 = unlimited)")
+			return nil
+		}
+		role := v.pendingLimitRole
+		v.form.close()
+		v.formKind = formNoneKind
+		return execStatements(v.mgr, "", "set connection limit "+role, []string{db.BuildRoleConnLimit(role, n)})
 	}
 	return nil
 }
@@ -454,4 +495,12 @@ func yesno(b bool) string {
 		return "yes"
 	}
 	return "·"
+}
+
+// connLimitStr renders a role's connection limit; -1 (unlimited) shows as ∞.
+func connLimitStr(n int) string {
+	if n < 0 {
+		return "∞"
+	}
+	return strconv.Itoa(n)
 }
