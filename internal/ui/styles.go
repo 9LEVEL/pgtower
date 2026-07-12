@@ -41,7 +41,13 @@ var (
 	stModal = lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).
 		Padding(1, 2)
+
+	stVersion = lipgloss.NewStyle().Foreground(colMuted)
+	stBrand   = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
 )
+
+// brand é a assinatura leve da marca exibida no cabeçalho/ajuda.
+const brand = "9level.dev"
 
 // hint renderiza "key label" para o rodapé de atalhos.
 func hint(k, label string) string {

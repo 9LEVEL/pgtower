@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -37,6 +38,7 @@ type Model struct {
 	height int
 
 	showHelp bool
+	helpVP   viewport.Model
 	status   string
 	fatalErr error
 	quitting bool
@@ -44,7 +46,7 @@ type Model struct {
 
 // New monta o modelo raiz com todas as abas.
 func New(cfg *config.Config, mgr *db.Manager) *Model {
-	m := &Model{cfg: cfg, mgr: mgr}
+	m := &Model{cfg: cfg, mgr: mgr, helpVP: viewport.New(60, 10)}
 	m.tabs = []tabView{
 		newDashboardView(cfg, mgr),
 		newDatabasesView(mgr),
@@ -74,6 +76,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, t := range m.tabs {
 			t.SetSize(msg.Width, bodyH)
 		}
+		m.helpVP.Width = clampInt(msg.Width-8, 30, 84)
+		m.helpVP.Height = clampInt(msg.Height-8, 4, 40)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -111,12 +115,15 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// Help overlay: qualquer tecla fecha.
+	// Help overlay: ↑↓ rolam; ?/esc/q fecham.
 	if m.showHelp {
 		if msg.String() == "?" || msg.Type == tea.KeyEsc || msg.String() == "q" {
 			m.showHelp = false
+			return m, nil
 		}
-		return m, nil
+		var cmd tea.Cmd
+		m.helpVP, cmd = m.helpVP.Update(msg)
+		return m, cmd
 	}
 
 	capturing := m.tabs[m.active].CapturingInput()
@@ -128,7 +135,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			return m, tea.Quit
 		case "?":
-			m.showHelp = true
+			m.openHelp()
 			return m, nil
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			idx := int(msg.String()[0] - '1')
@@ -192,9 +199,13 @@ func (m *Model) bodyHeight() int {
 
 func (m *Model) renderHeader() string {
 	left := stTitle.Render(" pgtui ")
-	conn := fmt.Sprintf(" %s@%s:%s  •  admin db: %s ",
-		m.cfg.User, m.cfg.Host, m.cfg.Port, m.mgr.AdminDB())
-	right := stStatus.Render(conn)
+	if m.cfg.Version != "" {
+		left += stVersion.Render(" " + m.cfg.Version)
+	}
+
+	conn := stStatus.Render(fmt.Sprintf(" %s@%s:%s • admin db: %s ",
+		m.cfg.User, m.cfg.Host, m.cfg.Port, m.mgr.AdminDB()))
+	right := conn + stBrand.Render(brand+" ")
 
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {

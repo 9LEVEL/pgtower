@@ -44,6 +44,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	cfg.Version = version
 
 	ctx := context.Background()
 	mgr, err := db.NewManager(ctx, cfg.URL, cfg.AdminDB)

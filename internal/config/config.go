@@ -28,6 +28,10 @@ type Config struct {
 
 	// RefreshSeconds controla o auto-refresh do dashboard.
 	RefreshSeconds int
+
+	// Version é a versão do binário (injetada em main via -ldflags), exibida
+	// no cabeçalho. Preenchida por quem constrói a Config.
+	Version string
 }
 
 // Load procura por um arquivo .env (no diretório atual e no do executável),

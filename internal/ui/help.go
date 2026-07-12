@@ -6,8 +6,17 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// overlayHelp desenha o painel de ajuda centralizado sobre a página.
-func (m *Model) overlayHelp(bg string) string {
+// openHelp popula o viewport da ajuda e o abre.
+func (m *Model) openHelp() {
+	m.showHelp = true
+	m.helpVP.Width = clampInt(m.width-8, 30, 84)
+	m.helpVP.Height = clampInt(m.height-8, 4, 40)
+	m.helpVP.SetContent(helpBody())
+	m.helpVP.GotoTop()
+}
+
+// helpBody monta o corpo (rolável) da ajuda.
+func helpBody() string {
 	rows := [][2]string{
 		{"Navegação global", ""},
 		{"1 – 6", "trocar de aba"},
@@ -72,13 +81,28 @@ func (m *Model) overlayHelp(bg string) string {
 			b.WriteString("  " + key + stKeyHint.Render(r[1]) + "\n")
 		}
 	}
+	return strings.TrimRight(b.String(), "\n")
+}
 
+// overlayHelp desenha a ajuda: cabeçalho (versão + marca) e rodapé fixos, com
+// os atalhos num viewport rolável para caber em qualquer altura de terminal.
+func (m *Model) overlayHelp(bg string) string {
+	ver := m.cfg.Version
+	if ver == "" {
+		ver = "dev"
+	}
+	header := stBrand.Render("pgtui") + stVersion.Render(" "+ver) +
+		stKeyHint.Render("  ·  ") + stBrand.Render(brand)
 	title := lipgloss.NewStyle().Bold(true).Foreground(colOnDark).Background(colAccent).
 		Padding(0, 1).Render("Atalhos do teclado")
 
-	content := title + "\n\n" + strings.TrimRight(b.String(), "\n")
-	box := stModal.BorderForeground(colAccent).Render(content)
+	footer := stKeyHint.Render("esc fechar")
+	if m.helpVP.TotalLineCount() > m.helpVP.Height {
+		footer += stKeyHint.Render(" · ↑↓ rolar")
+	}
 
+	content := header + "\n" + title + "\n\n" + m.helpVP.View() + "\n\n" + footer
+	box := stModal.BorderForeground(colAccent).Render(content)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
 
