@@ -21,7 +21,7 @@ type dashboardView struct {
 	err      error
 	updated  time.Time
 	interval time.Duration
-	started  bool // garante um único loop de tick
+	started  bool // ensures a single tick loop
 
 	width, height int
 }
@@ -39,9 +39,9 @@ func (v *dashboardView) CapturingInput() bool { return false }
 func (v *dashboardView) SetSize(w, h int)     { v.width, v.height = w, h }
 
 func (v *dashboardView) Init() tea.Cmd {
-	// O tick se auto-reagenda em Update; iniciá-lo só uma vez evita acumular
-	// loops de auto-refresh a cada vez que a aba é reaberta. Reaberturas
-	// posteriores apenas disparam um refresh imediato.
+	// The tick reschedules itself in Update; starting it only once avoids
+	// accumulating auto-refresh loops each time the tab is reopened. Later
+	// reopens just trigger an immediate refresh.
 	if v.started {
 		return loadDashboard(v.mgr)
 	}
@@ -60,7 +60,7 @@ func (v *dashboardView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case tickMsg:
-		// Re-agenda o próximo tick e recarrega.
+		// Reschedule the next tick and reload.
 		return tea.Batch(loadDashboard(v.mgr), tick(v.interval))
 	case tea.KeyMsg:
 		if msg.String() == "r" {
@@ -71,28 +71,28 @@ func (v *dashboardView) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (v *dashboardView) FooterHints() string {
-	h := hint("r", "atualizar")
+	h := hint("r", "refresh")
 	if !v.updated.IsZero() {
-		h += stKeyHint.Render("  ·  atualizado " + v.updated.Format("15:04:05"))
+		h += stKeyHint.Render("  ·  updated " + v.updated.Format("15:04:05"))
 	}
 	return h
 }
 
 func (v *dashboardView) View() string {
 	if v.err != nil {
-		return "\n" + stErr.Render("Falha ao carregar dashboard: "+v.err.Error())
+		return "\n" + stErr.Render("Failed to load dashboard: "+v.err.Error())
 	}
 	if !v.loaded {
-		return "\n  " + stStatus.Render("Carregando métricas do cluster…")
+		return "\n  " + stStatus.Render("Loading cluster metrics…")
 	}
 
 	d := v.data
 
-	// --- cartões de topo ---
+	// --- top cards ---
 	connValue := fmt.Sprintf("%d / %d", d.TotalConns, d.MaxConns)
-	connCard := v.card("Conexões", []string{
+	connCard := v.card("Connections", []string{
 		colorConns(d.TotalConns, d.MaxConns, connValue),
-		stLabel.Render(fmt.Sprintf("ativ %d · idle %d · tx %d", d.Active, d.Idle, d.IdleInTx)),
+		stLabel.Render(fmt.Sprintf("active %d · idle %d · tx %d", d.Active, d.Idle, d.IdleInTx)),
 	})
 
 	cacheCard := v.card("Cache hit", []string{
@@ -101,19 +101,19 @@ func (v *dashboardView) View() string {
 			human(d.Commits), human(d.Rollbacks))),
 	})
 
-	sizeCard := v.card("Armazenamento", []string{
+	sizeCard := v.card("Storage", []string{
 		stValue.Render(d.TotalSize),
 		stLabel.Render(fmt.Sprintf("%d databases", d.DBCount)),
 	})
 
 	uptimeCard := v.card("Uptime", []string{
 		stValue.Render(humanDuration(d.Uptime)),
-		stLabel.Render("desde " + d.StartedAt.Format("2006-01-02 15:04")),
+		stLabel.Render("since " + d.StartedAt.Format("2006-01-02 15:04")),
 	})
 
 	row1 := lipgloss.JoinHorizontal(lipgloss.Top, connCard, cacheCard, sizeCard, uptimeCard)
 
-	// --- servidor / query mais longa ---
+	// --- server / longest query ---
 	longest := "—"
 	longStyle := stValue
 	if d.LongestQuery > 0 {
@@ -124,15 +124,15 @@ func (v *dashboardView) View() string {
 			longStyle = stWarnV
 		}
 	}
-	serverCard := v.card("Servidor", []string{
+	serverCard := v.card("Server", []string{
 		stValue.Render(d.Version),
-		stLabel.Render("query ativa mais longa: ") + longStyle.Render(longest),
+		stLabel.Render("longest active query: ") + longStyle.Render(longest),
 	})
 
-	// --- replicação ---
+	// --- replication ---
 	var repl string
 	if len(d.Replicas) == 0 {
-		repl = v.card("Replicação", []string{stLabel.Render("nenhum standby conectado")})
+		repl = v.card("Replication", []string{stLabel.Render("no standby connected")})
 	} else {
 		lines := make([]string, 0, len(d.Replicas))
 		for _, r := range d.Replicas {
@@ -143,7 +143,7 @@ func (v *dashboardView) View() string {
 			lines = append(lines, fmt.Sprintf("%s  %s  sync=%s  lag=%s",
 				stValue.Render(r.ClientAddr), st, r.SyncState, r.Lag))
 		}
-		repl = v.card("Replicação", lines)
+		repl = v.card("Replication", lines)
 	}
 
 	row2 := lipgloss.JoinHorizontal(lipgloss.Top, serverCard, repl)
@@ -156,7 +156,7 @@ func (v *dashboardView) View() string {
 	return b.String()
 }
 
-// card renderiza um cartão com título e linhas de conteúdo.
+// card renders a card with a title and content lines.
 func (v *dashboardView) card(title string, lines []string) string {
 	w := v.cardWidth()
 	head := lipgloss.NewStyle().Foreground(colMuted).Bold(true).Render(strings.ToUpper(title))
@@ -165,7 +165,7 @@ func (v *dashboardView) card(title string, lines []string) string {
 }
 
 func (v *dashboardView) cardWidth() int {
-	// 4 cartões por linha com folga para bordas.
+	// 4 cards per row with room for borders.
 	w := (v.width / 4) - 2
 	if w < 16 {
 		w = 16
@@ -228,11 +228,11 @@ func human(n int64) string {
 	if n < 1000 {
 		return s
 	}
-	// separador de milhar com ponto (pt-BR)
+	// thousands separator with a comma (e.g. 13,303,136)
 	var out []byte
 	for i, c := range []byte(s) {
 		if i > 0 && (len(s)-i)%3 == 0 {
-			out = append(out, '.')
+			out = append(out, ',')
 		}
 		out = append(out, c)
 	}

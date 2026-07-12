@@ -32,7 +32,7 @@ func newSessionsView(mgr *db.Manager) *sessionsView {
 	return &sessionsView{mgr: mgr, tbl: newTable(), confirm: newConfirmModal(), alert: newAlertModal()}
 }
 
-func (v *sessionsView) Title() string        { return "Sessões" }
+func (v *sessionsView) Title() string        { return "Sessions" }
 func (v *sessionsView) CapturingInput() bool { return v.confirm.active || v.alert.active }
 
 func (v *sessionsView) Init() tea.Cmd {
@@ -53,9 +53,9 @@ func (v *sessionsView) SetSize(w, h int) {
 		{Title: "PID", Width: 8},
 		{Title: "USER", Width: 12},
 		{Title: "DATABASE", Width: 14},
-		{Title: "ESTADO", Width: 10},
-		{Title: "ESPERA", Width: 12},
-		{Title: "DURAÇÃO", Width: 9},
+		{Title: "STATE", Width: 10},
+		{Title: "WAITING", Width: 12},
+		{Title: "DURATION", Width: 9},
 		{Title: "QUERY", Width: qW},
 	})
 }
@@ -83,11 +83,11 @@ func (v *sessionsView) Update(msg tea.Msg) tea.Cmd {
 	case sessionActionMsg:
 		if msg.err != nil {
 			v.status = stErr.Render(fmt.Sprintf("✗ %s pid %d", msg.action, msg.pid))
-			v.alert.show(v.width, v.height, fmt.Sprintf("Falha ao %s pid %d", msg.action, msg.pid), pgErrorText(msg.err), true)
+			v.alert.show(v.width, v.height, fmt.Sprintf("Failed to %s pid %d", msg.action, msg.pid), pgErrorText(msg.err), true)
 		} else if msg.ok {
-			v.status = stGood.Render(fmt.Sprintf("✓ %s enviado ao pid %d", msg.action, msg.pid))
+			v.status = stGood.Render(fmt.Sprintf("✓ %s sent to pid %d", msg.action, msg.pid))
 		} else {
-			v.status = stWarnV.Render(fmt.Sprintf("pid %d não encontrado (já terminou?)", msg.pid))
+			v.status = stWarnV.Render(fmt.Sprintf("pid %d not found (already gone?)", msg.pid))
 		}
 		return loadSessions(v.mgr)
 
@@ -107,7 +107,7 @@ func (v *sessionsView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		case confirmYes:
 			return sessionAction(v.mgr, v.pendingAction, v.pendingPID)
 		case confirmNo:
-			v.status = stStatus.Render("cancelado")
+			v.status = stStatus.Render("cancelled")
 		}
 		return nil
 	}
@@ -116,9 +116,9 @@ func (v *sessionsView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case "r":
 		return v.Init()
 	case "c":
-		return v.confirmOn("cancelar", "Cancelar a query em execução (pg_cancel_backend)?")
+		return v.confirmOn("cancel", "Cancel the running query (pg_cancel_backend)?")
 	case "k":
-		return v.confirmOn("encerrar", "Encerrar a conexão (pg_terminate_backend)? A sessão será derrubada.")
+		return v.confirmOn("terminate", "Terminate the connection (pg_terminate_backend)? The session will be dropped.")
 	}
 	var cmd tea.Cmd
 	v.tbl, cmd = v.tbl.Update(msg)
@@ -138,15 +138,15 @@ func (v *sessionsView) confirmOn(action, question string) tea.Cmd {
 }
 
 func actionTitle(action string) string {
-	if action == "encerrar" {
-		return "Encerrar conexão"
+	if action == "terminate" {
+		return "Terminate connection"
 	}
-	return "Cancelar query"
+	return "Cancel query"
 }
 
 func (v *sessionsView) FooterHints() string {
-	return hint("c", "cancelar query") + "   " + hint("k", "encerrar conexão") + "   " +
-		hint("r", "atualizar") + "   " + hint("↑↓", "navegar")
+	return hint("c", "cancel query") + "   " + hint("k", "terminate connection") + "   " +
+		hint("r", "refresh") + "   " + hint("↑↓", "navigate")
 }
 
 func (v *sessionsView) View() string {
@@ -162,19 +162,19 @@ func (v *sessionsView) View() string {
 
 func (v *sessionsView) viewBody() string {
 	if v.err != nil {
-		return "\n" + stErr.Render("Erro: "+v.err.Error())
+		return "\n" + stErr.Render("Error: "+v.err.Error())
 	}
-	title := lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render("Sessões ativas")
-	meta := stLabel.Render(fmt.Sprintf("  %d conexões de cliente", len(v.sessions)))
+	title := lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render("Active sessions")
+	meta := stLabel.Render(fmt.Sprintf("  %d client connections", len(v.sessions)))
 	if v.loading {
-		meta = stLabel.Render("  carregando…")
+		meta = stLabel.Render("  loading…")
 	}
 	head := "\n" + title + meta
 	if v.status != "" {
 		head += "   " + v.status
 	}
 	if len(v.sessions) == 0 && !v.loading {
-		return head + "\n\n  " + stStatus.Render("Nenhuma sessão de cliente além do pgtui.")
+		return head + "\n\n  " + stStatus.Render("No client sessions other than pgtui.")
 	}
 	return head + "\n" + v.tbl.View()
 }

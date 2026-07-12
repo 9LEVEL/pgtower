@@ -12,22 +12,22 @@ import (
 	"github.com/9level/pg-tui/internal/db"
 )
 
-// tabView é o contrato de cada aba do TUI.
+// tabView is the contract for each TUI tab.
 type tabView interface {
 	Title() string
 	Init() tea.Cmd
 	Update(msg tea.Msg) tea.Cmd
 	View() string
 	SetSize(w, h int)
-	// CapturingInput indica que a aba está capturando texto (ex.: editor de
-	// query focado). Enquanto true, o root não intercepta teclas globais
-	// além de ctrl+c.
+	// CapturingInput indicates the tab is capturing text (e.g. the query
+	// editor focused). While true, the root does not intercept global keys
+	// other than ctrl+c.
 	CapturingInput() bool
-	// FooterHints retorna as dicas de atalho específicas da aba.
+	// FooterHints returns the tab-specific shortcut hints.
 	FooterHints() string
 }
 
-// Model é o modelo Bubble Tea raiz.
+// Model is the root Bubble Tea model.
 type Model struct {
 	cfg  *config.Config
 	mgr  *db.Manager
@@ -44,7 +44,7 @@ type Model struct {
 	quitting bool
 }
 
-// New monta o modelo raiz com todas as abas.
+// New builds the root model with all tabs.
 func New(cfg *config.Config, mgr *db.Manager) *Model {
 	m := &Model{cfg: cfg, mgr: mgr, helpVP: viewport.New(60, 10)}
 	m.tabs = []tabView{
@@ -84,7 +84,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.MouseMsg:
-		// Roteia mouse apenas para a aba ativa.
+		// Route the mouse only to the active tab.
 		return m, m.tabs[m.active].Update(msg)
 
 	case statusMsg:
@@ -92,8 +92,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Mensagens não-tecla (resultados de DB, tick) são transmitidas a todas as
-	// abas — cada uma ignora o que não reconhece.
+	// Non-key messages (DB results, tick) are broadcast to all tabs — each one
+	// ignores what it doesn't recognize.
 	var cmds []tea.Cmd
 	for _, t := range m.tabs {
 		if c := t.Update(msg); c != nil {
@@ -103,19 +103,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// statusMsg atualiza a linha de status transitória.
+// statusMsg updates the transient status line.
 type statusMsg string
 
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	dbg("key=%q type=%d active=%d(%s) capturing=%v help=%v", msg.String(), msg.Type,
 		m.active, m.tabs[m.active].Title(), m.tabs[m.active].CapturingInput(), m.showHelp)
-	// ctrl+c encerra sempre.
+	// ctrl+c always quits.
 	if msg.Type == tea.KeyCtrlC {
 		m.quitting = true
 		return m, tea.Quit
 	}
 
-	// Help overlay: ↑↓ rolam; ?/esc/q fecham.
+	// Help overlay: ↑↓ scroll; ?/esc/q close.
 	if m.showHelp {
 		if msg.String() == "?" || msg.Type == tea.KeyEsc || msg.String() == "q" {
 			m.showHelp = false
@@ -128,7 +128,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	capturing := m.tabs[m.active].CapturingInput()
 
-	// Teclas globais só quando a aba não está capturando texto.
+	// Global keys only when the tab is not capturing text.
 	if !capturing {
 		switch msg.String() {
 		case "q":
@@ -154,7 +154,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, m.tabs[m.active].Update(msg)
 }
 
-// switchTo troca a aba ativa e dispara o Init dela (recarrega dados).
+// switchTo switches the active tab and triggers its Init (reloads data).
 func (m *Model) switchTo(idx int) tea.Cmd {
 	dbg("switchTo(%d) from %d", idx, m.active)
 	if idx == m.active {
@@ -171,7 +171,7 @@ func (m *Model) View() string {
 		return ""
 	}
 	if m.width == 0 {
-		return "Carregando…"
+		return "Loading…"
 	}
 
 	header := m.renderHeader()
@@ -187,9 +187,9 @@ func (m *Model) View() string {
 	return page
 }
 
-// bodyHeight calcula a altura disponível para o corpo da aba.
+// bodyHeight computes the available height for the tab body.
 func (m *Model) bodyHeight() int {
-	// header(1) + tabbar(1) + footer(1) = 3 linhas de cromo.
+	// header(1) + tabbar(1) + footer(1) = 3 lines of chrome.
 	h := m.height - 3
 	if h < 3 {
 		h = 3
@@ -229,13 +229,13 @@ func (m *Model) renderTabBar() string {
 
 func (m *Model) renderFooter() string {
 	if m.fatalErr != nil {
-		return stErr.Render("erro: " + m.fatalErr.Error())
+		return stErr.Render("error: " + m.fatalErr.Error())
 	}
 	tabHints := m.tabs[m.active].FooterHints()
 	global := strings.Join([]string{
-		hint("1-6", "abas"),
-		hint("?", "ajuda"),
-		hint("q", "sair"),
+		hint("1-6", "tabs"),
+		hint("?", "help"),
+		hint("q", "quit"),
 	}, "   ")
 
 	line := global

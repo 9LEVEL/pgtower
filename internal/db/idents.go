@@ -2,17 +2,17 @@ package db
 
 import "strings"
 
-// QuoteIdent quota um identificador SQL (nome de tabela, coluna, role, db).
+// QuoteIdent quotes a SQL identifier (table, column, role, db name).
 func QuoteIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
-// QuoteQualified quota schema.tabela.
+// QuoteQualified quotes schema.table.
 func QuoteQualified(schema, name string) string {
 	return QuoteIdent(schema) + "." + QuoteIdent(name)
 }
 
-// QuoteLiteral quota uma string literal SQL (dobra aspas simples).
+// QuoteLiteral quotes a SQL string literal (doubles single quotes).
 func QuoteLiteral(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

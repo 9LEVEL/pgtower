@@ -12,18 +12,18 @@ import (
 	"github.com/9level/pg-tui/internal/db"
 )
 
-// dataMode é o sub-estado do navegador de dados.
+// dataMode is the sub-state of the data browser.
 type dataMode int
 
 const (
-	dataBrowse dataMode = iota // navegando o grid
-	dataSearch                 // digitando a busca de coluna ('/')
-	dataQuery                  // digitando na barra de query do topo
+	dataBrowse dataMode = iota // navigating the grid
+	dataSearch                 // typing the column search ('/')
+	dataQuery                  // typing in the top query bar
 )
 
-// dataBrowser exibe os dados de uma tabela em modo leitura, com scroll
-// horizontal de colunas (←→), busca na coluna ativa ('/') e uma barra de
-// query no topo para consultas customizadas (somente leitura).
+// dataBrowser displays a table's data in read-only mode, with horizontal
+// column scrolling (←→), search on the active column ('/') and a query bar at
+// the top for custom queries (read-only).
 type dataBrowser struct {
 	mgr *db.Manager
 
@@ -36,15 +36,15 @@ type dataBrowser struct {
 	rowCount int
 	trunc    bool
 
-	colCursor int // coluna ativa (índice absoluto)
-	colOffset int // primeira coluna visível (scroll horizontal)
+	colCursor int // active column (absolute index)
+	colOffset int // first visible column (horizontal scroll)
 
 	search   textinput.Model
 	queryBar textinput.Model
 
 	mode       dataMode
-	baseSQL    string // SELECT * … (reset com 'r')
-	currentSQL string // query exibida no momento
+	baseSQL    string // SELECT * … (reset with 'r')
+	currentSQL string // query currently displayed
 
 	loading bool
 	err     error
@@ -56,11 +56,11 @@ type dataBrowser struct {
 
 func newDataBrowser(mgr *db.Manager) *dataBrowser {
 	s := textinput.New()
-	s.Placeholder = "termo…"
+	s.Placeholder = "term…"
 	s.CharLimit = 200
 
 	q := textinput.New()
-	q.Placeholder = "SELECT … (somente leitura)"
+	q.Placeholder = "SELECT … (read-only)"
 	q.CharLimit = 2000
 
 	return &dataBrowser{
@@ -89,7 +89,7 @@ func (b *dataBrowser) SetSize(w, h int) {
 	}
 }
 
-// Open inicia o navegador numa tabela e dispara a carga do SELECT *.
+// Open starts the browser on a table and triggers loading the SELECT *.
 func (b *dataBrowser) Open(dbname, schema, tbl string) tea.Cmd {
 	b.dbname, b.schema, b.table = dbname, schema, tbl
 	b.mode = dataBrowse
@@ -115,7 +115,7 @@ func (b *dataBrowser) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tableDataMsg:
 		if msg.token != b.token {
-			return nil // resultado obsoleto
+			return nil // stale result
 		}
 		b.loading = false
 		b.err = msg.err
@@ -132,9 +132,9 @@ func (b *dataBrowser) Update(msg tea.Msg) tea.Cmd {
 			b.buildGrid()
 			note := ""
 			if b.trunc {
-				note = " (limitado a 1000)"
+				note = " (limited to 1000)"
 			}
-			b.status = fmt.Sprintf("%d linhas%s", b.rowCount, note)
+			b.status = fmt.Sprintf("%d rows%s", b.rowCount, note)
 		}
 		return nil
 
@@ -203,7 +203,7 @@ func (b *dataBrowser) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
 		sql := "SELECT * FROM " + db.QuoteQualified(b.schema, b.table) +
 			" WHERE " + db.QuoteIdent(col) + "::text ILIKE " + db.QuoteLiteral("%"+term+"%") +
 			" LIMIT 1000"
-		b.status = "buscando '" + term + "' em " + col + "…"
+		b.status = "searching '" + term + "' in " + col + "…"
 		return b.run(sql)
 	}
 	var cmd tea.Cmd
@@ -223,7 +223,7 @@ func (b *dataBrowser) handleQueryKey(msg tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		if db.Classify(sql) != db.Safe {
-			b.status = stBadV.Render("somente leitura aqui — use a aba Query para escrever")
+			b.status = stBadV.Render("read-only here — use the Query tab to write")
 			return nil
 		}
 		b.queryBar.Blur()
@@ -264,7 +264,7 @@ func (b *dataBrowser) avail() int {
 	return a
 }
 
-// ensureVisible ajusta colOffset para que a coluna ativa fique visível.
+// ensureVisible adjusts colOffset so the active column stays visible.
 func (b *dataBrowser) ensureVisible() {
 	if b.colCursor < b.colOffset {
 		b.colOffset = b.colCursor
@@ -286,7 +286,7 @@ func (b *dataBrowser) ensureVisible() {
 	}
 }
 
-// buildGrid recorta a janela horizontal de colunas e alimenta o grid.
+// buildGrid slices the horizontal column window and feeds the grid.
 func (b *dataBrowser) buildGrid() {
 	if len(b.allCols) == 0 {
 		b.grid.SetRows(nil)
@@ -304,7 +304,7 @@ func (b *dataBrowser) buildGrid() {
 		}
 		title := b.allCols[i]
 		if i == b.colCursor {
-			title = "›" + title // marca a coluna ativa
+			title = "›" + title // mark the active column
 		}
 		cols = append(cols, table.Column{Title: strings.ToUpper(title), Width: b.widths[i]})
 		idxs = append(idxs, i)
@@ -322,9 +322,9 @@ func (b *dataBrowser) buildGrid() {
 		}
 		rows[r] = table.Row(cells)
 	}
-	// Ordem importa: o bubbles table renderiza a cada setter. Zerar as linhas
-	// antes de trocar as colunas evita um render intermediário com contagem de
-	// células ≠ contagem de colunas (índice fora do range em renderRow).
+	// Order matters: the bubbles table renders on each setter. Clearing the rows
+	// before swapping the columns avoids an intermediate render with a cell
+	// count ≠ column count (index out of range in renderRow).
 	b.grid.SetRows(nil)
 	b.grid.SetColumns(cols)
 	b.grid.SetRows(rows)
@@ -336,26 +336,26 @@ func (b *dataBrowser) buildGrid() {
 func (b *dataBrowser) FooterHints() string {
 	switch b.mode {
 	case dataSearch:
-		return hint("enter", "buscar") + "   " + hint("esc", "cancelar")
+		return hint("enter", "search") + "   " + hint("esc", "cancel")
 	case dataQuery:
-		return hint("enter", "rodar (leitura)") + "   " + hint("esc", "cancelar")
+		return hint("enter", "run (read-only)") + "   " + hint("esc", "cancel")
 	default:
-		return hint("esc", "voltar") + "  " + hint("←→", "colunas") + "  " +
-			hint("/", "buscar coluna") + "  " + hint("e", "query") + "  " + hint("r", "reset")
+		return hint("esc", "back") + "  " + hint("←→", "columns") + "  " +
+			hint("/", "search column") + "  " + hint("e", "query") + "  " + hint("r", "reset")
 	}
 }
 
 func (b *dataBrowser) View() string {
-	// Barra de query (topo).
+	// Query bar (top).
 	var bar string
 	if b.mode == dataQuery {
 		bar = stKey.Render("SQL›") + " " + b.queryBar.View()
 	} else {
 		bar = stKeyHint.Render("SQL› ") + stStatus.Render(truncate(b.currentSQL, b.width-8)) +
-			stKeyHint.Render("   (e edita)")
+			stKeyHint.Render("   (e edits)")
 	}
 
-	// Título + status.
+	// Title + status.
 	loc := lipgloss.NewStyle().Bold(true).Foreground(colAccent).
 		Render(fmt.Sprintf("%s · %s.%s", b.dbname, b.schema, b.table))
 	meta := ""
@@ -363,11 +363,11 @@ func (b *dataBrowser) View() string {
 	case b.err != nil:
 		meta = stErr.Render("  " + collapseErr(b.err.Error()))
 	case b.loading:
-		meta = stLabel.Render("  carregando…")
+		meta = stLabel.Render("  loading…")
 	default:
 		colInfo := ""
 		if len(b.allCols) > 0 {
-			colInfo = fmt.Sprintf("  ·  coluna %d/%d: %s",
+			colInfo = fmt.Sprintf("  ·  column %d/%d: %s",
 				b.colCursor+1, len(b.allCols), b.allCols[b.colCursor])
 		}
 		meta = stLabel.Render("  "+b.status) + stKeyHint.Render(colInfo)
@@ -379,11 +379,11 @@ func (b *dataBrowser) View() string {
 		if len(b.allCols) > 0 {
 			col = b.allCols[b.colCursor]
 		}
-		searchLine := stKey.Render("buscar em "+col+": ") + b.search.View()
+		searchLine := stKey.Render("search in "+col+": ") + b.search.View()
 		return bar + "\n" + loc + meta + "\n" + searchLine + "\n" + body
 	}
 	if b.err == nil && len(b.allRows) == 0 && !b.loading {
-		body = "\n  " + stStatus.Render("(0 linhas)")
+		body = "\n  " + stStatus.Render("(0 rows)")
 	}
 	return bar + "\n" + loc + meta + "\n" + body
 }

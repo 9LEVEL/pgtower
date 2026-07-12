@@ -9,12 +9,12 @@ import (
 	"github.com/9level/pg-tui/internal/db"
 )
 
-// TestSmoke exercita todas as queries contra um Postgres real. Só roda quando
-// DATABASE_URL está definido (ex.: exportando do .env). É read-only.
+// TestSmoke exercises all the queries against a real Postgres. It only runs
+// when DATABASE_URL is set (e.g. exported from .env). It is read-only.
 func TestSmoke(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		t.Skip("DATABASE_URL não definido; pulando smoke test de integração")
+		t.Skip("DATABASE_URL not set; skipping integration smoke test")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -44,7 +44,7 @@ func TestSmoke(t *testing.T) {
 		t.Fatalf("ListDatabases: %v", err)
 	}
 	if len(dbs) == 0 {
-		t.Fatal("ListDatabases retornou vazio")
+		t.Fatal("ListDatabases returned empty")
 	}
 	t.Logf("databases: %d", len(dbs))
 	for _, d := range dbs {
@@ -55,24 +55,24 @@ func TestSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTables(postgres): %v", err)
 	}
-	t.Logf("tabelas em 'postgres': %d", len(tbls))
+	t.Logf("tables in 'postgres': %d", len(tbls))
 
 	blocks, err := db.ListBlocks(ctx, p)
 	if err != nil {
 		t.Fatalf("ListBlocks: %v", err)
 	}
-	t.Logf("bloqueios ativos: %d", len(blocks))
+	t.Logf("active blocks: %d", len(blocks))
 
 	res, err := db.RunQuery(ctx, p, "select datname, numbackends from pg_stat_database order by numbackends desc limit 5")
 	if err != nil {
 		t.Fatalf("RunQuery(select): %v", err)
 	}
 	if len(res.Columns) != 2 {
-		t.Fatalf("esperava 2 colunas, veio %d", len(res.Columns))
+		t.Fatalf("expected 2 columns, got %d", len(res.Columns))
 	}
-	t.Logf("query runner: %d colunas, %d linhas, %s", len(res.Columns), res.RowCount, res.Elapsed)
+	t.Logf("query runner: %d columns, %d rows, %s", len(res.Columns), res.RowCount, res.Elapsed)
 
-	// Classificador de segurança.
+	// Safety classifier.
 	cases := map[string]db.Danger{
 		"select 1":                             db.Safe,
 		"  SELECT * from users where id=1":     db.Safe,
@@ -89,7 +89,7 @@ func TestSmoke(t *testing.T) {
 	}
 	for sql, want := range cases {
 		if got := db.Classify(sql); got != want {
-			t.Errorf("Classify(%q) = %v, quero %v", sql, got, want)
+			t.Errorf("Classify(%q) = %v, want %v", sql, got, want)
 		}
 	}
 }

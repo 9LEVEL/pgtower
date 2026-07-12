@@ -6,7 +6,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// openHelp popula o viewport da ajuda e o abre.
+// openHelp populates the help viewport and opens it.
 func (m *Model) openHelp() {
 	m.showHelp = true
 	m.helpVP.Width = clampInt(m.width-8, 30, 84)
@@ -15,57 +15,57 @@ func (m *Model) openHelp() {
 	m.helpVP.GotoTop()
 }
 
-// helpBody monta o corpo (rolável) da ajuda.
+// helpBody builds the (scrollable) help body.
 func helpBody() string {
 	rows := [][2]string{
-		{"Navegação global", ""},
-		{"1 – 6", "trocar de aba"},
-		{"tab / shift+tab", "próxima / aba anterior"},
-		{"?", "abrir/fechar esta ajuda"},
-		{"q  /  ctrl+c", "sair"},
+		{"Global navigation", ""},
+		{"1 – 6", "switch tab"},
+		{"tab / shift+tab", "next / previous tab"},
+		{"?", "open/close this help"},
+		{"q  /  ctrl+c", "quit"},
 		{"", ""},
 		{"Dashboard", ""},
-		{"r", "atualizar agora (auto a cada N s)"},
+		{"r", "refresh now (auto every N s)"},
 		{"", ""},
-		{"Bancos & Tabelas", ""},
-		{"↑/↓  j/k", "navegar lista"},
-		{"enter", "banco → tabelas → dados da tabela"},
-		{"esc", "voltar um nível"},
-		{"r", "recarregar"},
+		{"Databases & Tables", ""},
+		{"↑/↓  j/k", "navigate list"},
+		{"enter", "database → tables → table data"},
+		{"esc", "back one level"},
+		{"r", "reload"},
 		{"", ""},
-		{"Dados da tabela (leitura)", ""},
-		{"←/→  h/l", "navegar entre colunas (scroll horizontal)"},
-		{"/", "buscar na coluna ativa (ILIKE)"},
-		{"e  ou  :", "editar a query do topo (somente leitura)"},
-		{"r", "resetar para SELECT *"},
-		{"esc", "voltar para a lista de tabelas"},
+		{"Table data (read-only)", ""},
+		{"←/→  h/l", "navigate between columns (horizontal scroll)"},
+		{"/", "search in the active column (ILIKE)"},
+		{"e  or  :", "edit the top query (read-only)"},
+		{"r", "reset to SELECT *"},
+		{"esc", "back to the table list"},
 		{"", ""},
-		{"Bancos: criar / apagar / describe", ""},
-		{"n", "criar database (na lista de bancos)"},
-		{"D", "apagar database (digita o nome p/ confirmar)"},
-		{"d", "describe da tabela (colunas, índices, constraints)"},
+		{"Databases: create / drop / describe", ""},
+		{"n", "create database (in the database list)"},
+		{"D", "drop database (type the name to confirm)"},
+		{"d", "describe the table (columns, indexes, constraints)"},
 		{"", ""},
 		{"Query Runner", ""},
-		{"enter / i", "focar o editor SQL"},
-		{"/  ou  ctrl+t", "trocar o database alvo (lista filtrável)"},
-		{"x", "EXPLAIN (plano, sem executar)"},
-		{"ctrl+r  /  f5", "executar a query"},
-		{"esc", "sair do editor (foca resultados)"},
-		{"↑/↓ ←/→", "rolar o grid de resultados"},
+		{"enter / i", "focus the SQL editor"},
+		{"/  or  ctrl+t", "switch the target database (filterable list)"},
+		{"x", "EXPLAIN (plan, without running)"},
+		{"ctrl+r  /  f5", "run the query"},
+		{"esc", "leave the editor (focus results)"},
+		{"↑/↓ ←/→", "scroll the results grid"},
 		{"", ""},
-		{"Sessões", ""},
-		{"c", "cancelar query da sessão (pg_cancel_backend)"},
-		{"k", "encerrar conexão (pg_terminate_backend)"},
-		{"r", "atualizar"},
+		{"Sessions", ""},
+		{"c", "cancel the session's query (pg_cancel_backend)"},
+		{"k", "terminate connection (pg_terminate_backend)"},
+		{"r", "refresh"},
 		{"", ""},
 		{"Roles", ""},
-		{"n", "criar role/usuário"},
-		{"g", "grant a um database"},
-		{"D", "apagar role (digita o nome p/ confirmar)"},
-		{"F", "forçar drop: reatribui posse a outro role e remove"},
+		{"n", "create role/user"},
+		{"g", "grant to a database"},
+		{"D", "drop role (type the name to confirm)"},
+		{"F", "force-drop: reassign ownership to another role and remove"},
 		{"", ""},
 		{"Locks", ""},
-		{"r", "recarregar árvore de bloqueios"},
+		{"r", "reload the blocking tree"},
 	}
 
 	var b strings.Builder
@@ -84,8 +84,8 @@ func helpBody() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// overlayHelp desenha a ajuda: cabeçalho (versão + marca) e rodapé fixos, com
-// os atalhos num viewport rolável para caber em qualquer altura de terminal.
+// overlayHelp draws the help: fixed header (version + brand) and footer, with
+// the shortcuts in a scrollable viewport to fit any terminal height.
 func (m *Model) overlayHelp(bg string) string {
 	ver := m.cfg.Version
 	if ver == "" {
@@ -94,11 +94,11 @@ func (m *Model) overlayHelp(bg string) string {
 	header := stBrand.Render("pgtui") + stVersion.Render(" "+ver) +
 		stKeyHint.Render("  ·  ") + stBrand.Render(brand)
 	title := lipgloss.NewStyle().Bold(true).Foreground(colOnDark).Background(colAccent).
-		Padding(0, 1).Render("Atalhos do teclado")
+		Padding(0, 1).Render("Keyboard shortcuts")
 
-	footer := stKeyHint.Render("esc fechar")
+	footer := stKeyHint.Render("esc close")
 	if m.helpVP.TotalLineCount() > m.helpVP.Height {
-		footer += stKeyHint.Render(" · ↑↓ rolar")
+		footer += stKeyHint.Render(" · ↑↓ scroll")
 	}
 
 	content := header + "\n" + title + "\n\n" + m.helpVP.View() + "\n\n" + footer
@@ -106,7 +106,7 @@ func (m *Model) overlayHelp(bg string) string {
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
 
-// pad ajusta uma string para largura fixa (à esquerda).
+// pad adjusts a string to a fixed width (left-aligned).
 func pad(s string, w int) string {
 	if lipgloss.Width(s) >= w {
 		return s
@@ -114,7 +114,7 @@ func pad(s string, w int) string {
 	return s + strings.Repeat(" ", w-lipgloss.Width(s))
 }
 
-// truncate corta uma string (largura de célula) adicionando reticências.
+// truncate cuts a string (cell width) adding an ellipsis.
 func truncate(s string, w int) string {
 	if w <= 0 {
 		return ""
@@ -122,7 +122,7 @@ func truncate(s string, w int) string {
 	if lipgloss.Width(s) <= w {
 		return s
 	}
-	// Corta por runas até caber, reservando 1 para "…".
+	// Cut by runes until it fits, reserving 1 for "…".
 	runes := []rune(s)
 	for len(runes) > 0 && lipgloss.Width(string(runes))+1 > w {
 		runes = runes[:len(runes)-1]

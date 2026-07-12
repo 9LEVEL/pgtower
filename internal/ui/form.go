@@ -51,7 +51,7 @@ const (
 	formCancel
 )
 
-// form é um formulário modal simples (campos texto/senha/seleção).
+// form is a simple modal form (text/password/select fields).
 type form struct {
 	active bool
 	title  string
@@ -75,7 +75,7 @@ func (f *form) close() {
 	f.fields = nil
 }
 
-// refocus foca o campo de texto atual (selects não recebem foco de cursor).
+// refocus focuses the current text field (selects don't receive cursor focus).
 func (f *form) refocus() tea.Cmd {
 	var cmd tea.Cmd
 	for i := range f.fields {
@@ -171,7 +171,7 @@ func (f *form) view(w, h int) string {
 		b = append(b, label+"  "+val)
 	}
 
-	hints := stKeyHint.Render("tab/↑↓ campos · ←→ opções · enter confirmar · esc cancelar")
+	hints := stKeyHint.Render("tab/↑↓ fields · ←→ options · enter confirm · esc cancel")
 	content := title + "\n\n" + joinLines(b) + "\n\n" + hints
 	box := stModal.BorderForeground(colAccent).Width(clampInt(w-8, 40, 74)).Render(content)
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)

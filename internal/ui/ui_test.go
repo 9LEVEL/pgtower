@@ -16,18 +16,18 @@ import (
 )
 
 func TestPgErrorText(t *testing.T) {
-	pg := &pgconn.PgError{Message: "boom", Detail: "porque X", Hint: "faça Y"}
+	pg := &pgconn.PgError{Message: "boom", Detail: "because X", Hint: "do Y"}
 	got := pgErrorText(pg)
-	for _, want := range []string{"boom", "porque X", "faça Y"} {
+	for _, want := range []string{"boom", "because X", "do Y"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("pgErrorText não contém %q: %q", want, got)
+			t.Errorf("pgErrorText does not contain %q: %q", want, got)
 		}
 	}
-	if pgErrorText(errors.New("plano")) != "plano" {
-		t.Error("pgErrorText de erro simples deveria retornar a mensagem")
+	if pgErrorText(errors.New("plain")) != "plain" {
+		t.Error("pgErrorText of a simple error should return the message")
 	}
 	if pgErrorText(nil) != "" {
-		t.Error("pgErrorText(nil) deveria ser vazio")
+		t.Error("pgErrorText(nil) should be empty")
 	}
 }
 
@@ -35,7 +35,7 @@ func testManager(t *testing.T) *db.Manager {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		t.Skip("DATABASE_URL não definido; pulando teste de UI")
+		t.Skip("DATABASE_URL not set; skipping UI test")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -66,45 +66,45 @@ func TestModelNavigationRender(t *testing.T) {
 
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	// Dashboard — o header mostra versão e marca.
+	// Dashboard — the header shows version and brand.
 	m, _ = m.Update(dashboardMsg{data: db.DashboardData{
 		Version: "PostgreSQL 18.4", MaxConns: 50, TotalConns: 41, Active: 3,
 		Idle: 30, IdleInTx: 1, CacheHitRatio: 99.9, DBCount: 17, TotalSize: "216 MB",
 		Uptime: 2 * time.Hour, StartedAt: time.Now().Add(-2 * time.Hour),
 	}})
-	assertContains(t, m.View(), "Dashboard", "CONEXÕES", "41 / 50", "v9.9.9", "9level.dev")
+	assertContains(t, m.View(), "Dashboard", "CONNECTIONS", "41 / 50", "v9.9.9", "9level.dev")
 
-	// Aba 2: Bancos
+	// Tab 2: Databases
 	m, _ = m.Update(key("2"))
 	m, _ = m.Update(databasesMsg{rows: []db.Database{
 		{Name: "postgres", Owner: "postgres", SizePretty: "8 MB", Connections: 1},
 		{Name: "b_fusion", Owner: "us_fusion", SizePretty: "13 MB", Connections: 12},
 	}})
-	assertContains(t, m.View(), "Databases do cluster", "postgres", "b_fusion")
+	assertContains(t, m.View(), "Cluster databases", "postgres", "b_fusion")
 
-	// Enter -> tabelas do banco selecionado (postgres)
+	// Enter -> tables of the selected database (postgres)
 	m, _ = m.Update(key("enter"))
 	m, _ = m.Update(tablesMsg{dbname: "postgres", rows: []db.Table{
 		{Schema: "public", Name: "widgets", TotalSize: "1 MB", TableSize: "800 kB", IndexSize: "200 kB", EstRows: 1234},
 	}})
-	assertContains(t, m.View(), "Tabelas · postgres", "widgets")
+	assertContains(t, m.View(), "Tables · postgres", "widgets")
 
-	// esc volta para lista
+	// esc goes back to the list
 	m, _ = m.Update(key("esc"))
-	assertContains(t, m.View(), "Databases do cluster")
+	assertContains(t, m.View(), "Cluster databases")
 
-	// Aba 4: Locks (sem bloqueios)
+	// Tab 4: Locks (no blocks)
 	m, _ = m.Update(key("4"))
 	m, _ = m.Update(locksMsg{rows: nil})
-	assertContains(t, m.View(), "Nenhuma sessão bloqueada")
+	assertContains(t, m.View(), "No blocked sessions")
 
-	// Aba 3: Query runner
+	// Tab 3: Query runner
 	m, _ = m.Update(key("3"))
-	assertContains(t, m.View(), "SQL", "alvo:")
+	assertContains(t, m.View(), "SQL", "target:")
 
-	// Ajuda (about): título fixo + marca no topo; atalhos roláveis.
+	// Help (about): fixed title + brand at the top; scrollable shortcuts.
 	m, _ = m.Update(key("?"))
-	assertContains(t, m.View(), "Atalhos do teclado", "9level.dev", "Navegação global")
+	assertContains(t, m.View(), "Keyboard shortcuts", "9level.dev", "Global navigation")
 }
 
 func TestQueryDatabasePicker(t *testing.T) {
@@ -115,23 +115,23 @@ func TestQueryDatabasePicker(t *testing.T) {
 	var m tea.Model = New(cfg, mgr)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	// vai para a aba Query e alimenta a lista de bancos (broadcast)
+	// go to the Query tab and feed the database list (broadcast)
 	m, _ = m.Update(key("3"))
 	m, _ = m.Update(databasesMsg{rows: []db.Database{
 		{Name: "postgres"}, {Name: "b_fusion"}, {Name: "db_corely"},
 	}})
 
-	// '/' abre o seletor
+	// '/' opens the selector
 	m, _ = m.Update(key("/"))
-	assertContains(t, m.View(), "Rodar queries em qual database?", "b_fusion", "db_corely", "3/3")
+	assertContains(t, m.View(), "Run queries on which database?", "b_fusion", "db_corely", "3/3")
 
-	// filtra por "fus" -> só b_fusion
+	// filter by "fus" -> only b_fusion
 	m, _ = m.Update(key("fus"))
 	assertContains(t, m.View(), "b_fusion", "1/3")
 
-	// enter seleciona -> alvo vira b_fusion
+	// enter selects -> target becomes b_fusion
 	m, _ = m.Update(key("enter"))
-	assertContains(t, m.View(), "alvo:", "b_fusion", "alvo alterado para b_fusion")
+	assertContains(t, m.View(), "target:", "b_fusion", "target changed to b_fusion")
 }
 
 func TestDataBrowserLive(t *testing.T) {
@@ -141,35 +141,35 @@ func TestDataBrowserLive(t *testing.T) {
 	b := newDataBrowser(mgr)
 	b.SetSize(120, 30)
 
-	// pg_catalog.pg_class existe em qualquer database e tem muitas colunas.
+	// pg_catalog.pg_class exists in any database and has many columns.
 	msg := b.Open("postgres", "pg_catalog", "pg_class")()
 	b.Update(msg)
 	if b.err != nil {
 		t.Fatalf("Open: %v", b.err)
 	}
 	if len(b.allCols) < 5 || len(b.allRows) == 0 {
-		t.Fatalf("esperava várias colunas e linhas, veio cols=%d rows=%d", len(b.allCols), len(b.allRows))
+		t.Fatalf("expected several columns and rows, got cols=%d rows=%d", len(b.allCols), len(b.allRows))
 	}
 
-	// navegação de colunas: →→ avança o cursor e mantém dentro dos limites.
+	// column navigation: →→ advances the cursor and keeps it within bounds.
 	b.Update(key("right"))
 	b.Update(key("right"))
 	if b.colCursor != 2 {
-		t.Errorf("colCursor após 2×→ = %d, quero 2", b.colCursor)
+		t.Errorf("colCursor after 2×→ = %d, want 2", b.colCursor)
 	}
 	b.Update(key("left"))
 	if b.colCursor != 1 {
-		t.Errorf("colCursor após ←  = %d, quero 1", b.colCursor)
+		t.Errorf("colCursor after ← = %d, want 1", b.colCursor)
 	}
 
 	if !strings.Contains(b.View(), "pg_catalog.pg_class") {
-		t.Errorf("View() não mostra o local da tabela:\n%s", b.View())
+		t.Errorf("View() does not show the table location:\n%s", b.View())
 	}
 
-	// Regressão: percorrer TODAS as colunas cruza as fronteiras da janela
-	// horizontal (onde a contagem de colunas visíveis muda) — antes isso
-	// estourava um índice no render do bubbles table. View() força o render.
-	b.SetSize(80, 24) // largura menor => mais trocas de janela
+	// Regression: walking through ALL the columns crosses the horizontal window
+	// boundaries (where the count of visible columns changes) — this used to
+	// overflow an index in the bubbles table render. View() forces the render.
+	b.SetSize(80, 24) // smaller width => more window swaps
 	b.colCursor, b.colOffset = 0, 0
 	b.buildGrid()
 	for i := 0; i < len(b.allCols)+3; i++ {
@@ -181,11 +181,11 @@ func TestDataBrowserLive(t *testing.T) {
 		_ = b.View()
 	}
 	if b.colCursor != 0 {
-		t.Errorf("após voltar todas as colunas, colCursor=%d, quero 0", b.colCursor)
+		t.Errorf("after going back through all columns, colCursor=%d, want 0", b.colCursor)
 	}
 	b.SetSize(120, 30)
 
-	// busca na coluna 'relname' pelo próprio nome da tabela -> >=1 linha.
+	// search in column 'relname' for the table's own name -> >=1 row.
 	relname := -1
 	for i, c := range b.allCols {
 		if c == "relname" {
@@ -193,7 +193,7 @@ func TestDataBrowserLive(t *testing.T) {
 		}
 	}
 	if relname < 0 {
-		t.Fatal("coluna relname não encontrada")
+		t.Fatal("relname column not found")
 	}
 	b.colCursor = relname
 	b.mode = dataSearch
@@ -201,18 +201,18 @@ func TestDataBrowserLive(t *testing.T) {
 	rmsg := b.handleSearchKey(tea.KeyMsg{Type: tea.KeyEnter})()
 	b.Update(rmsg)
 	if b.err != nil {
-		t.Fatalf("busca de coluna: %v", b.err)
+		t.Fatalf("column search: %v", b.err)
 	}
 	if b.rowCount < 1 {
-		t.Errorf("busca 'pg_class' em relname trouxe %d linhas, esperava >=1", b.rowCount)
+		t.Errorf("search 'pg_class' in relname returned %d rows, expected >=1", b.rowCount)
 	}
 
-	// barra de query recusa escrita (somente leitura).
+	// query bar refuses writes (read-only).
 	b.mode = dataQuery
 	b.queryBar.SetValue("drop table foo")
 	b.handleQueryKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if !strings.Contains(b.status, "somente leitura") {
-		t.Errorf("query bar deveria recusar escrita, status=%q", b.status)
+	if !strings.Contains(b.status, "read-only") {
+		t.Errorf("query bar should refuse writes, status=%q", b.status)
 	}
 }
 
@@ -223,66 +223,66 @@ func TestSessionsAndRolesRender(t *testing.T) {
 	var m tea.Model = New(cfg, mgr)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 130, Height: 40})
 
-	// Aba 5: Sessões
+	// Tab 5: Sessions
 	m, _ = m.Update(key("5"))
 	m, _ = m.Update(sessionsMsg{rows: []db.Session{
 		{PID: 123, User: "app", DB: "prod", State: "active", Duration: "00:00:05", Query: "select pg_sleep(9)"},
 	}})
-	assertContains(t, m.View(), "Sessões ativas", "123", "select pg_sleep")
+	assertContains(t, m.View(), "Active sessions", "123", "select pg_sleep")
 
-	// 'c' abre confirmação de cancelamento
+	// 'c' opens the cancel confirmation
 	m, _ = m.Update(key("c"))
-	assertContains(t, m.View(), "Cancelar query", "pid 123")
-	m, _ = m.Update(key("n")) // cancela o modal
+	assertContains(t, m.View(), "Cancel query", "pid 123")
+	m, _ = m.Update(key("n")) // cancels the modal
 
-	// Aba 6: Roles
+	// Tab 6: Roles
 	m, _ = m.Update(key("6"))
 	m, _ = m.Update(rolesMsg{rows: []db.Role{
 		{Name: "postgres", Super: true, CanLogin: true},
 		{Name: "app_user", CanLogin: true},
 	}})
 	m, _ = m.Update(databasesMsg{rows: []db.Database{{Name: "prod"}, {Name: "stage"}}})
-	assertContains(t, m.View(), "Roles do cluster", "postgres", "app_user")
+	assertContains(t, m.View(), "Cluster roles", "postgres", "app_user")
 
-	// 'n' abre o formulário de criação
+	// 'n' opens the creation form
 	m, _ = m.Update(key("n"))
-	assertContains(t, m.View(), "Criar role", "Nome", "Senha")
+	assertContains(t, m.View(), "Create role", "Name", "Password")
 	m, _ = m.Update(key("esc"))
 
-	// 'g' abre o formulário de grant (com database selecionável)
+	// 'g' opens the grant form (with selectable database)
 	m, _ = m.Update(key("g"))
-	assertContains(t, m.View(), "Grant", "Database", "Privilégio")
+	assertContains(t, m.View(), "Grant", "Database", "Privilege")
 	m, _ = m.Update(key("esc"))
 
-	// Erro de ação admin abre um alerta com a mensagem COMPLETA (sem cortar).
+	// An admin action error opens an alert with the FULL message (no truncation).
 	pgErr := &pgconn.PgError{
 		Message: "role \"app_user\" cannot be dropped because some objects depend on it",
 		Detail:  "owner of database prod",
 	}
-	m, _ = m.Update(execMsg{action: "dropar role app_user", err: pgErr})
-	assertContains(t, m.View(), "Falha ao dropar role", "cannot be dropped",
-		"owner of database prod", "COMO RESOLVER")
-	m, _ = m.Update(key("esc")) // fecha o alerta
-	assertContains(t, m.View(), "Roles do cluster")
+	m, _ = m.Update(execMsg{action: "drop role app_user", err: pgErr})
+	assertContains(t, m.View(), "Failed to drop role", "cannot be dropped",
+		"owner of database prod", "HOW TO FIX")
+	m, _ = m.Update(key("esc")) // closes the alert
+	assertContains(t, m.View(), "Cluster roles")
 }
 
-// TestDashboardTickStartsOnce garante que reabrir a aba Dashboard não cria
-// múltiplos loops de auto-refresh (não precisa de DB — Init só monta comandos).
+// TestDashboardTickStartsOnce ensures that reopening the Dashboard tab does not
+// create multiple auto-refresh loops (no DB needed — Init only builds commands).
 func TestDashboardTickStartsOnce(t *testing.T) {
 	d := newDashboardView(&config.Config{RefreshSeconds: 5}, nil)
 	if d.started {
-		t.Fatal("started deveria começar false")
+		t.Fatal("started should begin false")
 	}
 	d.Init()
 	if !d.started {
-		t.Fatal("primeira Init() deveria marcar started=true (inicia o tick)")
+		t.Fatal("first Init() should set started=true (starts the tick)")
 	}
-	// Reaberturas seguintes não devem reiniciar o flag (não duplicam o tick).
+	// Subsequent reopens must not reset the flag (they don't duplicate the tick).
 	for i := 0; i < 5; i++ {
 		d.Init()
 	}
 	if !d.started {
-		t.Fatal("started deveria permanecer true")
+		t.Fatal("started should remain true")
 	}
 }
 
@@ -290,7 +290,7 @@ func assertContains(t *testing.T, s string, subs ...string) {
 	t.Helper()
 	for _, sub := range subs {
 		if !strings.Contains(s, sub) {
-			t.Errorf("View() não contém %q\n---\n%s\n---", sub, s)
+			t.Errorf("View() does not contain %q\n---\n%s\n---", sub, s)
 		}
 	}
 }

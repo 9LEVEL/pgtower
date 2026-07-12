@@ -2,7 +2,7 @@ package db
 
 import "context"
 
-// ColumnDef descreve uma coluna de tabela.
+// ColumnDef describes a table column.
 type ColumnDef struct {
 	Name     string
 	Type     string
@@ -10,20 +10,20 @@ type ColumnDef struct {
 	Default  string
 }
 
-// IndexDef descreve um índice.
+// IndexDef describes an index.
 type IndexDef struct {
 	Name string
 	Def  string
 }
 
-// ConstraintDef descreve uma constraint (PK/FK/UNIQUE/CHECK).
+// ConstraintDef describes a constraint (PK/FK/UNIQUE/CHECK).
 type ConstraintDef struct {
 	Name string
 	Type string // p, f, u, c, ...
 	Def  string
 }
 
-// TableDescription é o "\d" de uma tabela.
+// TableDescription is the "\d" of a table.
 type TableDescription struct {
 	Schema      string
 	Table       string
@@ -32,7 +32,7 @@ type TableDescription struct {
 	Constraints []ConstraintDef
 }
 
-// DescribeTable retorna colunas, índices e constraints de uma tabela.
+// DescribeTable returns the columns, indexes and constraints of a table.
 func DescribeTable(ctx context.Context, p Pinger, schema, table string) (TableDescription, error) {
 	d := TableDescription{Schema: schema, Table: table}
 	rel := QuoteQualified(schema, table)

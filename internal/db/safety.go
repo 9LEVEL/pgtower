@@ -5,16 +5,16 @@ import (
 	"strings"
 )
 
-// Danger classifica o risco de um statement SQL para o query runner.
+// Danger classifies the risk of a SQL statement for the query runner.
 type Danger int
 
 const (
-	// Safe: somente leitura (SELECT/WITH...SELECT/EXPLAIN/SHOW/TABLE/VALUES).
+	// Safe: read-only (SELECT/WITH...SELECT/EXPLAIN/SHOW/TABLE/VALUES).
 	Safe Danger = iota
-	// Write: modifica dados ou schema (INSERT/UPDATE/DELETE/DDL). Confirmação.
+	// Write: modifies data or schema (INSERT/UPDATE/DELETE/DDL). Confirmation.
 	Write
-	// Critical: potencial perda de dados em massa (DROP DATABASE/TABLE,
-	// TRUNCATE, DELETE/UPDATE sem WHERE). Confirmação enfática.
+	// Critical: potential mass data loss (DROP DATABASE/TABLE,
+	// TRUNCATE, DELETE/UPDATE without WHERE). Emphatic confirmation.
 	Critical
 )
 
@@ -40,8 +40,8 @@ var (
 	reHasWhere = regexp.MustCompile(`\bwhere\b`)
 )
 
-// Classify determina o nível de risco de um statement. Faz uma análise
-// léxica simples (não é um parser SQL) — na dúvida, escala o risco.
+// Classify determines the risk level of a statement. It does a simple lexical
+// analysis (not a SQL parser) — when in doubt, it escalates the risk.
 func Classify(sql string) Danger {
 	norm := normalize(sql)
 	if norm == "" {
@@ -56,7 +56,7 @@ func Classify(sql string) Danger {
 	case strings.HasPrefix(norm, "update") && !reHasWhere.MatchString(norm):
 		return Critical
 	case reReadOnly.MatchString(norm):
-		// Um WITH pode conter DML (writable CTE). Se aparecer, escala.
+		// A WITH may contain DML (writable CTE). If present, escalate.
 		if strings.HasPrefix(norm, "with") && containsDML(norm) {
 			return Write
 		}
@@ -64,7 +64,7 @@ func Classify(sql string) Danger {
 	case reWrite.MatchString(norm):
 		return Write
 	default:
-		// Desconhecido: trata como escrita por segurança.
+		// Unknown: treat as a write for safety.
 		return Write
 	}
 }

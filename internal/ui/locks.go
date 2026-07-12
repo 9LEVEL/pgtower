@@ -46,12 +46,12 @@ func (v *locksView) SetSize(w, h int) {
 
 	qW := clampInt(w-58, 20, 70)
 	v.tbl.SetColumns([]table.Column{
-		{Title: "BLOQUEADO", Width: 9},
+		{Title: "BLOCKED", Width: 9},
 		{Title: "USER", Width: 12},
-		{Title: "ESPERA", Width: 9},
-		{Title: "BLOQUEIA", Width: 9},
-		{Title: "POR USER", Width: 12},
-		{Title: "QUERY BLOQUEADA", Width: qW},
+		{Title: "WAITING", Width: 9},
+		{Title: "BLOCKED BY", Width: 10},
+		{Title: "BY USER", Width: 12},
+		{Title: "BLOCKED QUERY", Width: qW},
 	})
 }
 
@@ -90,36 +90,36 @@ func (v *locksView) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (v *locksView) FooterHints() string {
-	return hint("r", "recarregar") + "   " + hint("↑↓", "navegar")
+	return hint("r", "reload") + "   " + hint("↑↓", "navigate")
 }
 
 func (v *locksView) View() string {
 	if v.err != nil {
-		return "\n" + stErr.Render("Erro: "+v.err.Error())
+		return "\n" + stErr.Render("Error: "+v.err.Error())
 	}
 
-	title := lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render("Árvore de bloqueios")
+	title := lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render("Blocking tree")
 	if v.loading {
-		return "\n" + title + stLabel.Render("  carregando…")
+		return "\n" + title + stLabel.Render("  loading…")
 	}
 	if v.count == 0 {
-		return "\n" + title + "\n\n  " + stGood.Render("✓ Nenhuma sessão bloqueada. Tudo livre.")
+		return "\n" + title + "\n\n  " + stGood.Render("✓ No blocked sessions. All clear.")
 	}
 
-	meta := stLabel.Render(fmt.Sprintf("  %d sessão(ões) esperando por lock", v.count))
+	meta := stLabel.Render(fmt.Sprintf("  %d session(s) waiting on a lock", v.count))
 	detail := v.selectedDetail()
 	return "\n" + title + meta + "\n" + v.tbl.View() + detail
 }
 
-// selectedDetail mostra a query completa da linha selecionada (bloqueada e
-// bloqueadora), já que o grid trunca.
+// selectedDetail shows the full query of the selected row (blocked and
+// blocking), since the grid truncates.
 func (v *locksView) selectedDetail() string {
 	row := v.tbl.SelectedRow()
 	if row == nil {
 		return ""
 	}
-	// row[5] é a query bloqueada já truncada; para o detalhe reusamos os dados
-	// via SelectedRow — mostramos o essencial em duas linhas.
+	// row[5] is the blocked query already truncated; for the detail we reuse
+	// the data via SelectedRow — we show the essentials in two lines.
 	label := stLabel.Render
-	return "\n\n" + label("bloqueada: ") + stValue.Render(row[5])
+	return "\n\n" + label("blocked: ") + stValue.Render(row[5])
 }

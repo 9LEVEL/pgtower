@@ -7,10 +7,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ForceDropRole remove um role mesmo com dependências, SEM apagar dados:
-// reatribui a posse dos databases e dos objetos ao successor, revoga os
-// privilégios do role em cada database, e por fim executa DROP ROLE. Retorna
-// avisos não-fatais por database e o erro do DROP ROLE final (se houver).
+// ForceDropRole removes a role even with dependencies, WITHOUT dropping data:
+// it reassigns ownership of the databases and objects to the successor, revokes
+// the role's privileges in each database, and finally runs DROP ROLE. It
+// returns non-fatal warnings per database and the final DROP ROLE error (if any).
 func ForceDropRole(ctx context.Context, mgr *Manager, doomed, successor string) ([]string, error) {
 	admin, err := mgr.Pool(ctx, mgr.AdminDB())
 	if err != nil {
@@ -18,7 +18,7 @@ func ForceDropRole(ctx context.Context, mgr *Manager, doomed, successor string) 
 	}
 	var warnings []string
 
-	// 1. reatribui a posse dos databases que o role possui (não apaga banco).
+	// 1. reassign ownership of the databases the role owns (keeps the database).
 	ownedDBs, err := DatabasesOwnedBy(ctx, admin, doomed)
 	if err != nil {
 		return nil, err
@@ -30,8 +30,8 @@ func ForceDropRole(ctx context.Context, mgr *Manager, doomed, successor string) 
 		}
 	}
 
-	// 2. em cada database: reatribui objetos (REASSIGN OWNED, sem perda de
-	//    dados) e depois revoga privilégios (DROP OWNED).
+	// 2. in each database: reassign objects (REASSIGN OWNED, no data loss)
+	//    and then revoke privileges (DROP OWNED).
 	dbs, err := ConnectableDatabases(ctx, admin)
 	if err != nil {
 		return warnings, err
@@ -39,19 +39,19 @@ func ForceDropRole(ctx context.Context, mgr *Manager, doomed, successor string) 
 	for _, dbn := range dbs {
 		p, e := mgr.Pool(ctx, dbn)
 		if e != nil {
-			warnings = append(warnings, "conectar em "+dbn+": "+oneLine(e))
+			warnings = append(warnings, "connect to "+dbn+": "+oneLine(e))
 			continue
 		}
 		if _, e := ExecAdmin(ctx, p, "REASSIGN OWNED BY "+QuoteIdent(doomed)+" TO "+QuoteIdent(successor)); e != nil {
-			warnings = append(warnings, "REASSIGN em "+dbn+": "+oneLine(e))
+			warnings = append(warnings, "REASSIGN in "+dbn+": "+oneLine(e))
 			continue
 		}
 		if _, e := ExecAdmin(ctx, p, "DROP OWNED BY "+QuoteIdent(doomed)); e != nil {
-			warnings = append(warnings, "DROP OWNED em "+dbn+": "+oneLine(e))
+			warnings = append(warnings, "DROP OWNED in "+dbn+": "+oneLine(e))
 		}
 	}
 
-	// 3. finalmente remove o role.
+	// 3. finally remove the role.
 	if _, e := ExecAdmin(ctx, admin, BuildDropRole(doomed)); e != nil {
 		return warnings, e
 	}
@@ -66,10 +66,10 @@ func oneLine(err error) string {
 	return s
 }
 
-// ExecAdmin executa um statement administrativo (CREATE/DROP/GRANT/ALTER) no
-// protocolo simples. Necessário porque CREATE/DROP DATABASE não rodam no
-// protocolo estendido (prepared statement) do pgx. Só recebe SQL construído
-// internamente (identificadores quotados), nunca entrada crua do usuário.
+// ExecAdmin runs an administrative statement (CREATE/DROP/GRANT/ALTER) in the
+// simple protocol. Required because CREATE/DROP DATABASE do not run in pgx's
+// extended protocol (prepared statement). It only receives SQL built internally
+// (quoted identifiers), never raw user input.
 func ExecAdmin(ctx context.Context, p Pinger, sql string) (string, error) {
 	rows, err := p.Query(ctx, sql, pgx.QueryExecModeSimpleProtocol)
 	if err != nil {
@@ -82,7 +82,7 @@ func ExecAdmin(ctx context.Context, p Pinger, sql string) (string, error) {
 	return rows.CommandTag().String(), nil
 }
 
-// Role é uma linha de pg_roles.
+// Role is a row from pg_roles.
 type Role struct {
 	Name        string
 	CanLogin    bool
@@ -95,7 +95,7 @@ type Role struct {
 	MemberOf    string
 }
 
-// ListRoles lista os roles do cluster.
+// ListRoles lists the cluster roles.
 func ListRoles(ctx context.Context, p Pinger) ([]Role, error) {
 	rows, err := p.Query(ctx, `
 		select r.rolname, r.rolcanlogin, r.rolsuper, r.rolcreatedb,
@@ -124,7 +124,7 @@ func ListRoles(ctx context.Context, p Pinger) ([]Role, error) {
 	return out, rows.Err()
 }
 
-// DatabasesOwnedBy retorna os databases (não-template) cujo dono é o role.
+// DatabasesOwnedBy returns the (non-template) databases owned by the role.
 func DatabasesOwnedBy(ctx context.Context, p Pinger, role string) ([]string, error) {
 	rows, err := p.Query(ctx, `
 		select d.datname
@@ -147,7 +147,7 @@ func DatabasesOwnedBy(ctx context.Context, p Pinger, role string) ([]string, err
 	return out, rows.Err()
 }
 
-// ConnectableDatabases retorna os databases não-template que aceitam conexão.
+// ConnectableDatabases returns the non-template databases that accept connections.
 func ConnectableDatabases(ctx context.Context, p Pinger) ([]string, error) {
 	rows, err := p.Query(ctx, `
 		select datname from pg_database
@@ -168,10 +168,10 @@ func ConnectableDatabases(ctx context.Context, p Pinger) ([]string, error) {
 	return out, rows.Err()
 }
 
-// --- construtores de SQL (não executam; a UI roda via RunQuery) ---
+// --- SQL builders (they do not execute; the UI runs them via RunQuery) ---
 
-// BuildCreateRole monta um CREATE ROLE. login controla LOGIN/NOLOGIN; password
-// vazio omite PASSWORD. createdb/createrole adicionam os atributos.
+// BuildCreateRole builds a CREATE ROLE. login controls LOGIN/NOLOGIN; an empty
+// password omits PASSWORD. createdb/createrole add the attributes.
 func BuildCreateRole(name, password string, login, createdb, createrole bool) string {
 	s := "CREATE ROLE " + QuoteIdent(name)
 	if login {
@@ -191,12 +191,12 @@ func BuildCreateRole(name, password string, login, createdb, createrole bool) st
 	return s
 }
 
-// BuildDropRole monta um DROP ROLE.
+// BuildDropRole builds a DROP ROLE.
 func BuildDropRole(name string) string {
 	return "DROP ROLE " + QuoteIdent(name)
 }
 
-// BuildCreateDatabase monta um CREATE DATABASE (owner opcional).
+// BuildCreateDatabase builds a CREATE DATABASE (optional owner).
 func BuildCreateDatabase(name, owner string) string {
 	s := "CREATE DATABASE " + QuoteIdent(name)
 	if owner != "" {
@@ -205,38 +205,38 @@ func BuildCreateDatabase(name, owner string) string {
 	return s
 }
 
-// BuildDropDatabase monta um DROP DATABASE.
+// BuildDropDatabase builds a DROP DATABASE.
 func BuildDropDatabase(name string) string {
 	return "DROP DATABASE " + QuoteIdent(name)
 }
 
-// GrantScope define os presets de GRANT entre role e database.
+// GrantScope defines the GRANT presets between role and database.
 type GrantScope int
 
 const (
 	GrantConnect     GrantScope = iota // GRANT CONNECT ON DATABASE
 	GrantAllDatabase                   // GRANT ALL PRIVILEGES ON DATABASE
 	GrantOwner                         // ALTER DATABASE ... OWNER TO
-	GrantSchemaAll                     // acesso total ao schema public (roda no db alvo)
+	GrantSchemaAll                     // full access to the public schema (runs on the target db)
 )
 
 func (g GrantScope) Label() string {
 	switch g {
 	case GrantConnect:
-		return "CONNECT no database"
+		return "CONNECT on database"
 	case GrantAllDatabase:
-		return "ALL PRIVILEGES no database"
+		return "ALL PRIVILEGES on database"
 	case GrantOwner:
-		return "tornar owner do database"
+		return "make database owner"
 	case GrantSchemaAll:
-		return "acesso total ao schema public"
+		return "full access to public schema"
 	default:
 		return "?"
 	}
 }
 
-// BuildGrant retorna o database em que os statements devem rodar ("" = pode
-// rodar no admin) e a lista de statements do preset escolhido.
+// BuildGrant returns the database the statements should run on ("" = can run on
+// admin) and the list of statements for the chosen preset.
 func BuildGrant(scope GrantScope, database, role string) (targetDB string, stmts []string) {
 	db := QuoteIdent(database)
 	r := QuoteIdent(role)

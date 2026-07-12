@@ -2,7 +2,7 @@ package db
 
 import "context"
 
-// Session é uma linha de pg_stat_activity (conexão de cliente).
+// Session is a row from pg_stat_activity (client connection).
 type Session struct {
 	PID        int32
 	User       string
@@ -15,8 +15,8 @@ type Session struct {
 	Query      string
 }
 
-// ListSessions lista as conexões de cliente (exceto a própria do pgtui),
-// ativas primeiro, depois pelas mais antigas.
+// ListSessions lists client connections (except pgtui's own), active first,
+// then by oldest.
 func ListSessions(ctx context.Context, p Pinger) ([]Session, error) {
 	rows, err := p.Query(ctx, `
 		select pid,
@@ -49,16 +49,16 @@ func ListSessions(ctx context.Context, p Pinger) ([]Session, error) {
 	return out, rows.Err()
 }
 
-// CancelBackend envia SIGINT (pg_cancel_backend) — cancela a query atual da
-// sessão sem derrubá-la. Requer ser dono da sessão, membro do role dono, ou
-// pg_signal_backend/superuser.
+// CancelBackend sends SIGINT (pg_cancel_backend) — cancels the session's
+// current query without dropping it. Requires being the session owner, a member
+// of the owning role, or pg_signal_backend/superuser.
 func CancelBackend(ctx context.Context, p Pinger, pid int32) (bool, error) {
 	var ok bool
 	err := p.QueryRow(ctx, `select pg_cancel_backend($1)`, pid).Scan(&ok)
 	return ok, err
 }
 
-// TerminateBackend envia SIGTERM (pg_terminate_backend) — derruba a conexão.
+// TerminateBackend sends SIGTERM (pg_terminate_backend) — drops the connection.
 func TerminateBackend(ctx context.Context, p Pinger, pid int32) (bool, error) {
 	var ok bool
 	err := p.QueryRow(ctx, `select pg_terminate_backend($1)`, pid).Scan(&ok)

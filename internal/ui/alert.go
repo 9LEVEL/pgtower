@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// alertModal mostra uma mensagem longa (ex.: erro completo do Postgres) num
-// box rolável. Fecha com esc/enter/q.
+// alertModal shows a long message (e.g. a full Postgres error) in a scrollable
+// box. Closes with esc/enter/q.
 type alertModal struct {
 	active bool
 	title  string
@@ -32,7 +32,7 @@ func (a *alertModal) show(w, h int, title, body string, danger bool) {
 	a.vp.GotoTop()
 }
 
-// update devolve true quando o alerta é fechado.
+// update returns true when the alert is closed.
 func (a *alertModal) update(msg tea.KeyMsg) bool {
 	if !a.active {
 		return false
@@ -53,23 +53,23 @@ func (a *alertModal) view(w, h int) string {
 	}
 	title := lipgloss.NewStyle().Bold(true).Foreground(colOnDark).Background(bg).
 		Padding(0, 1).Render(" " + a.title + " ")
-	hint := stKeyHint.Render("↑↓ rolar · esc/enter fechar")
+	hint := stKeyHint.Render("↑↓ scroll · esc/enter close")
 	content := title + "\n\n" + a.vp.View() + "\n\n" + hint
 	box := stModal.BorderForeground(bg).Render(content)
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
 }
 
-// pgErrorText extrai a mensagem completa de um erro Postgres (Message + Detail
-// + Hint), que os status de uma linha cortam.
+// pgErrorText extracts the full message of a Postgres error (Message + Detail +
+// Hint), which one-line statuses truncate.
 func pgErrorText(err error) string {
 	if err == nil {
 		return ""
 	}
 	var pg *pgconn.PgError
 	if errors.As(err, &pg) {
-		s := "ERRO: " + pg.Message
+		s := "ERROR: " + pg.Message
 		if pg.Detail != "" {
-			s += "\n\nDETALHE: " + pg.Detail
+			s += "\n\nDETAIL: " + pg.Detail
 		}
 		if pg.Hint != "" {
 			s += "\n\nHINT: " + pg.Hint

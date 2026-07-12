@@ -1,41 +1,72 @@
 # pgtui
 
-TUI de administração de **PostgreSQL** para sysadmins — navegação 100% por teclado.
-Conecta em um cluster via `DATABASE_URL` e oferece, em seis abas:
+A keyboard-first **PostgreSQL administration TUI** for sysadmins — think *k9s,
+but for Postgres*. Where most database TUIs are data browsers, pgtui leans into
+**operations**: watch and kill sessions, manage roles and grants, create/drop
+databases, and inspect cluster health — all with strong guards against
+destructive mistakes.
 
-| Aba | O que faz |
-|-----|-----------|
-| **1 · Dashboard** | Saúde do cluster: conexões vs `max_connections`, cache hit ratio, uptime, tamanho total, commits/rollbacks, versão, query ativa mais longa e replicação. Auto-refresh. |
-| **2 · Bancos** | Databases (owner, tamanho, conexões) → tabelas → **dados em modo leitura** (scroll horizontal `←→`, busca na coluna `/`, query no topo `e`). Também: **criar** (`n`) e **apagar** (`D`) database e **describe** da tabela (`d`: colunas, tipos, índices, constraints). |
-| **3 · Query** | Editor SQL com grid paginado. `x` roda **EXPLAIN** (plano, sem executar). Escrita pede confirmação; destrutivo (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` sem `WHERE`) exige digitar `sim`. |
-| **4 · Locks** | Árvore de bloqueios: quem espera por qual sessão. |
-| **5 · Sessões** | `pg_stat_activity`: sessões de cliente com estado/espera/duração/query. **`c`** cancela a query (`pg_cancel_backend`), **`k`** encerra a conexão (`pg_terminate_backend`). |
-| **6 · Roles** | Roles do cluster (login, super, createdb/role, membros). **`n`** cria role/usuário (com senha, atributos), **`g`** faz grant a um database (CONNECT / ALL / owner / acesso total ao schema), **`D`** apaga role, **`F`** força a remoção reatribuindo a posse a um sucessor (sem apagar dados). |
+Single static binary, no dependencies, no container required.
+
+<!-- TODO: add a demo GIF here -->
 
 ```
-┌ pgtui ──────────────────────────── postgres@192.168.1.242:5432 · admin db: postgres ┐
-│ 1 Dashboard  2 Bancos  3 Query  4 Locks  5 Sessões  6 Roles                         │
-│ ╭ CONEXÕES ─╮ ╭ CACHE HIT ╮ ╭ ARMAZENAMENTO ╮ ╭ UPTIME ─╮                           │
-│ │ 40 / 50   │ │ 100.00%   │ │ 217 MB        │ │ 2h 27m  │                           │
-│ ╰───────────╯ ╰───────────╯ ╰───────────────╯ ╰─────────╯                           │
-└─────────────────────────────────────────────────────────────────────────────────────┘
+ pgtui  v0.4.0                         postgres@db:5432 • admin db: postgres  9level.dev
+ 1 Dashboard  2 Databases  3 Query  4 Locks  5 Sessions  6 Roles
+ ╭ CONNECTIONS ╮ ╭ CACHE HIT ╮ ╭ STORAGE ─╮ ╭ UPTIME ─╮
+ │ 40 / 50     │ │ 100.00%   │ │ 217 MB   │ │ 2h 27m  │
+ ╰─────────────╯ ╰───────────╯ ╰──────────╯ ╰─────────╯
 ```
 
-> **Gestão sem superusuário:** criar/dropar role e database e fazer grants
-> funcionam com um papel que tenha `CREATEROLE`/`CREATEDB` — não exige
-> superusuário. Toda ação destrutiva (apagar role/database) pede que você
-> **digite o nome** para confirmar; nada é apagado automaticamente.
+## Why pgtui?
 
-## Requisitos
+Tools like `pgcli`, `lazysql` and `rainfrog` are great for **browsing data and
+running queries**. pgtui overlaps there (it has a query runner and a read-only
+data browser), but its focus is **cluster administration**:
 
-- Go **1.26+** (só para compilar)
-- Um PostgreSQL alcançável e um papel com permissão de leitura em `pg_stat_*` /
-  `pg_database`. Para o dashboard completo de atividade, um superusuário (ou
-  `pg_monitor`) enxerga as queries de todas as sessões.
+- **Sessions** — see every client backend and `pg_cancel_backend` /
+  `pg_terminate_backend` a runaway one.
+- **Roles** — create users, grant privileges to databases, and drop roles
+  (including a safe *force-drop* that reassigns ownership instead of deleting
+  data).
+- **Databases** — create and drop databases, browse tables and sizes, and get a
+  `\d`-style structure view.
+- **Locks** — a blocking tree showing who is waiting on whom.
+- **Dashboard** — connections vs `max_connections`, cache hit ratio, uptime,
+  replication, longest active query.
 
-## Configuração
+It works **without a superuser**: a role with `CREATEROLE`/`CREATEDB` is enough
+for the management actions.
 
-O `pgtui` lê um arquivo `.env` no diretório atual (ou ao lado do binário):
+## Features
+
+| Tab | What it does |
+|-----|--------------|
+| **1 · Dashboard** | Cluster health: connections vs `max_connections`, cache hit ratio, uptime, total size, commits/rollbacks, version, longest active query, replication. Auto-refresh. |
+| **2 · Databases** | Databases (owner, size, connections) → tables → **read-only data browser** (horizontal column scroll `←→`, per-column search `/`, top query bar `e`). Create (`n`) / drop (`D`) databases and `d` for a table's structure (columns, indexes, constraints). |
+| **3 · Query** | SQL editor with a paged result grid. `x` runs **EXPLAIN** (plan only). Writes require confirmation; destructive statements (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` without `WHERE`) require typing `yes`. |
+| **4 · Locks** | Blocking tree: which session waits on which. |
+| **5 · Sessions** | `pg_stat_activity` with state/wait/duration/query. `c` cancels the query, `k` terminates the connection. |
+| **6 · Roles** | Roles with login/super/createdb attributes. `n` create, `g` grant to a database, `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss). |
+
+## Install
+
+pgtui is a compiled Go utility — a single static binary.
+
+```bash
+# from source (Go 1.26+)
+git clone https://github.com/9level/pg-tui.git
+cd pg-tui
+make build          # -> ./pgtui
+make install        # -> /usr/local/bin/pgtui (sudo)
+```
+
+Prebuilt binaries for Linux/macOS (amd64/arm64) are attached to each
+[GitHub Release](https://github.com/9level/pg-tui/releases).
+
+## Configuration
+
+pgtui reads a `.env` file from the working directory (or next to the binary):
 
 ```bash
 cp .env.example .env
@@ -47,128 +78,92 @@ DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/postgres?sslmode=disable
 PGTUI_REFRESH_SECONDS=5
 ```
 
-- O database na URL é o **admin db** — de onde saem as consultas de cluster
-  (`pg_stat_activity`, `pg_database`, replicação, locks). O TUI abre conexões
-  adicionais sob demanda ao navegar para as tabelas de outro banco ou ao rodar
-  uma query com alvo diferente (`ctrl+t`).
-- Também aceita as variáveis padrão `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/
-  `PGDATABASE`/`PGSSLMODE` caso `DATABASE_URL` não esteja definido.
-- Variáveis já exportadas no ambiente têm precedência sobre o `.env`.
+- The database in the URL is the **admin db** — where cluster-level queries run
+  (`pg_stat_activity`, `pg_database`, replication, locks). pgtui opens
+  additional connections on demand when you browse another database's tables or
+  run a query against a different target (switch it with `/`).
+- Standard `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`/`PGSSLMODE`
+  variables are used if `DATABASE_URL` is unset.
+- Environment variables take precedence over `.env`.
 
-## Uso
+### Permissions
 
-```bash
-make build      # gera ./pgtui
-./pgtui         # lê ./.env
+- Read access to `pg_stat_*` / `pg_database` is enough for the read-only tabs.
+  To see other sessions' query text on the dashboard/sessions view, connect as a
+  superuser or a member of `pg_monitor`.
+- Management actions need the usual Postgres privileges: `CREATEROLE` to
+  create/drop roles, `CREATEDB` to create databases, and ownership/`WITH ADMIN`
+  to grant. No superuser required.
 
-# ou direto:
-make run
-```
+## Keyboard shortcuts
 
-### Atalhos
+Press `?` in the app for the full, scrollable list.
 
-| Tecla | Ação |
-|-------|------|
-| `1`–`6` | trocar de aba |
-| `tab` / `shift+tab` | próxima / aba anterior |
-| `?` | ajuda (todos os atalhos) |
-| `q` / `ctrl+c` | sair |
-| **Dashboard** | |
-| `r` | atualizar agora (auto a cada `PGTUI_REFRESH_SECONDS`) |
-| **Bancos** | |
-| `↑`/`↓` `j`/`k` | navegar |
-| `enter` | banco → tabelas → **dados da tabela** (leitura) |
-| `d` | describe da tabela (colunas, tipos, índices, constraints) |
-| `n` / `D` | criar / apagar database (apagar pede o nome) |
-| `esc` | voltar um nível |
-| `r` | recarregar |
-| **Dados da tabela** | |
-| `←`/`→` `h`/`l` | navegar entre colunas (scroll horizontal) |
-| `/` | buscar na coluna ativa (`ILIKE '%termo%'`) |
-| `e` / `:` | editar a query do topo (somente leitura) |
-| `r` | resetar para `SELECT *` |
+| Key | Action |
+|-----|--------|
+| `1`–`6` | switch tab |
+| `tab` / `shift+tab` | next / previous tab |
+| `?` | help (all shortcuts) |
+| `q` / `ctrl+c` | quit |
+| **Databases** | |
+| `enter` | database → tables → read-only data |
+| `d` | describe table (columns, types, indexes, constraints) |
+| `n` / `D` | create / drop database (drop asks for the name) |
+| **Table data** | |
+| `←`/`→` `h`/`l` | move between columns (horizontal scroll) |
+| `/` | search the active column (`ILIKE '%term%'`) |
+| `e` | edit the top query bar (read-only) |
 | **Query** | |
-| `i` / `enter` | focar o editor SQL |
-| `/` (em navegação) ou `ctrl+t` | trocar o database alvo — lista filtrável |
-| `x` | EXPLAIN (plano, sem executar) |
-| `ctrl+r` / `f5` | executar |
-| `esc` | sair do editor (foca os resultados) |
-| `↑`/`↓` | rolar o grid de resultados |
-| **Locks** | |
-| `r` | recarregar a árvore de bloqueios |
-| **Sessões** | |
-| `c` | cancelar a query da sessão (`pg_cancel_backend`) |
-| `k` | encerrar a conexão (`pg_terminate_backend`) |
-| `r` | atualizar |
+| `i` / `enter` | focus the SQL editor |
+| `/` or `ctrl+t` | switch the target database (filterable list) |
+| `x` | EXPLAIN (plan, without executing) |
+| `ctrl+r` / `f5` | run |
+| **Sessions** | |
+| `c` | cancel the session's query (`pg_cancel_backend`) |
+| `k` | terminate the connection (`pg_terminate_backend`) |
 | **Roles** | |
-| `n` | criar role/usuário (nome, senha, login, createdb/role) |
-| `g` | grant a um database (CONNECT / ALL / owner / schema public) |
-| `D` | apagar role (pede o nome para confirmar) |
-| `F` | **forçar** drop: reatribui a posse dos objetos/databases a um role sucessor e revoga privilégios antes do `DROP ROLE` — **não apaga dados** |
+| `n` | create role/user |
+| `g` | grant to a database (CONNECT / ALL / owner / public schema) |
+| `D` | drop role (asks for the name) |
+| `F` | force-drop: reassign ownership to a successor, then drop — no data loss |
 
-### Guarda contra operações destrutivas
+## Safety model
 
-O query runner classifica cada statement antes de executar:
+pgtui is built so you can't lose data by accident:
 
-- **SAFE** (`SELECT`/`WITH…SELECT`/`EXPLAIN`/`SHOW`) → roda direto.
-- **WRITE** (`INSERT`/`UPDATE…WHERE`/`ALTER`/`CREATE`/…) → confirma com `y`.
-- **CRITICAL** (`DROP DATABASE`/`DROP TABLE`/`TRUNCATE`/`DELETE` ou `UPDATE`
-  **sem** `WHERE`) → exige digitar `sim` e pressionar `Enter`.
+- The query runner classifies every statement: **read-only** runs immediately,
+  **writes** confirm with `y`, and **critical** statements (`DROP DATABASE` /
+  `DROP TABLE` / `TRUNCATE`, or `DELETE`/`UPDATE` without a `WHERE`) require
+  typing `yes`.
+- Dropping a role or a database opens a confirmation that only proceeds when you
+  **type the object's exact name**.
+- **Force-drop** never deletes data: it `REASSIGN OWNED` / `ALTER DATABASE
+  OWNER` to a successor role and revokes privileges before `DROP ROLE`.
+- Admin statements run over the pgx simple protocol (required for
+  `CREATE`/`DROP DATABASE`), with quoted identifiers.
+- There is no code path that drops a database on its own.
 
-Não há nenhum caminho no TUI que apague bancos automaticamente — qualquer
-`DROP`/`TRUNCATE` só acontece se você digitá-lo e confirmá-lo.
-
-As ações de gestão nas abas **Bancos** e **Roles** seguem a mesma regra:
-apagar um database (`D`) ou um role (`D`) abre um diálogo que só confirma
-quando você **digita o nome exato** do objeto. Encerrar/cancelar sessão pede
-um `y`/`n`. As ações administrativas rodam no protocolo simples do pgx
-(necessário para `CREATE`/`DROP DATABASE`) e usam identificadores quotados.
-
-## Desenvolvimento
+## Development
 
 ```bash
-make test       # unit + smoke test de integração (precisa de DATABASE_URL)
+make test     # unit + integration (integration self-skips without DATABASE_URL)
 make vet
+gofmt -l .    # should be empty
 ```
 
-O smoke test (`internal/db`) e o teste de render da UI (`internal/ui`) rodam
-contra um Postgres real quando `DATABASE_URL` está definido; caso contrário são
-pulados. Ambos são **read-only**.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow. To debug the UI,
+log to a file: `PGTUI_DEBUG=/tmp/pgtui.log ./pgtui`.
 
-Para depurar a UI (o alt-screen ocupa o stdout), aponte `PGTUI_DEBUG` para um
-arquivo e acompanhe com `tail -f`:
+## Distribution & releases
 
 ```bash
-PGTUI_DEBUG=/tmp/pgtui.log ./pgtui
+make build-all VERSION=v0.4.0   # cross-compile to dist/ (linux/darwin, amd64/arm64)
+make release VERSION=v0.4.0     # validate semver + clean tree, tag, push
 ```
 
-> **Pegadinha ao testar num PTY headless:** no startup o Bubble Tea/termenv
-> emite uma query `OSC 11` (cor de fundo) e *bloqueia esperando a resposta do
-> terminal*, engolindo as primeiras teclas nesse meio-tempo. Num terminal real a
-> resposta é instantânea; num PTY automatizado, o driver precisa responder à
-> `\x1b]11;?` (e a `\x1b[c` / `\x1b[6n`) senão parece que o app "perde" as
-> teclas iniciais e trava por alguns segundos.
+Pushing a `v*.*.*` tag runs the CI (`.github/workflows/ci.yml`): tests, then
+`build-all`, then the binaries are attached to a GitHub Release.
 
-## Distribuição
+## License
 
-`pgtui` é um **utilitário Go compilado** — um binário único, estático
-(`CGO_ENABLED=0`), sem runtime nem container. Roda direto no terminal.
-
-```bash
-make build                    # gera ./pgtui para a plataforma atual
-make install                  # instala em /usr/local/bin (sudo)
-make build-all VERSION=v0.3.0 # cross-compila para dist/ (linux/darwin, amd64/arm64)
-```
-
-Release por tag:
-
-```bash
-make release VERSION=v0.3.0   # valida semver + working tree limpa, cria a tag e faz push
-```
-
-Fluxo: `git push` da tag `v*.*.*` → GitHub Actions (testes → `build-all`) →
-binários anexados ao **GitHub Release** (`.github/workflows/ci.yml`).
-
-**Rollback:** binário sem estado — basta rodar/instalar uma tag anterior
-(baixe o binário do release antigo, ou `git checkout v0.2.0 && make install`).
-O `pgtui` não altera schema próprio, então não há migration a reverter.
+[MIT](LICENSE) © 9Level · [9level.dev](https://9level.dev)

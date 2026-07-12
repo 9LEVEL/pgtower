@@ -2,7 +2,7 @@ package ui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Paleta adaptável (funciona em terminais claros e escuros).
+// Adaptive palette (works in light and dark terminals).
 var (
 	colAccent  = lipgloss.AdaptiveColor{Light: "#0b6bcb", Dark: "#4c9fff"}
 	colMuted   = lipgloss.AdaptiveColor{Light: "#6b7280", Dark: "#8a8f98"}
@@ -46,10 +46,10 @@ var (
 	stBrand   = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
 )
 
-// brand é a assinatura leve da marca exibida no cabeçalho/ajuda.
+// brand is the lightweight brand signature shown in the header/help.
 const brand = "9level.dev"
 
-// hint renderiza "key label" para o rodapé de atalhos.
+// hint renders "key label" for the shortcut footer.
 func hint(k, label string) string {
 	return stKey.Render(k) + " " + stKeyHint.Render(label)
 }

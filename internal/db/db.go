@@ -1,5 +1,5 @@
-// Package db gerencia pools de conexão pgx por database e expõe as consultas
-// de administração usadas pelo TUI.
+// Package db manages pgx connection pools per database and exposes the
+// administration queries used by the TUI.
 package db
 
 import (
@@ -11,9 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Manager mantém um pool por database. O primeiro pool (AdminDB) é usado para
-// consultas de cluster; pools adicionais são criados sob demanda ao navegar
-// para tabelas de outro banco ou rodar queries nele.
+// Manager keeps one pool per database. The first pool (AdminDB) is used for
+// cluster queries; additional pools are created on demand when navigating to
+// another database's tables or running queries against it.
 type Manager struct {
 	baseCfg *pgxpool.Config
 	adminDB string
@@ -22,18 +22,18 @@ type Manager struct {
 	pools map[string]*pgxpool.Pool
 }
 
-// NewManager parseia o DSN base e abre o pool do database administrativo,
-// validando a conectividade com um ping.
+// NewManager parses the base DSN and opens the administrative database's pool,
+// validating connectivity with a ping.
 func NewManager(ctx context.Context, dsn, adminDB string) (*Manager, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("dsn inválido: %w", err)
+		return nil, fmt.Errorf("invalid dsn: %w", err)
 	}
 	cfg.MaxConns = 4
 	cfg.MinConns = 0
 	cfg.MaxConnIdleTime = 2 * time.Minute
 	cfg.ConnConfig.ConnectTimeout = 8 * time.Second
-	// Identifica a origem das conexões no pg_stat_activity.
+	// Identifies the origin of connections in pg_stat_activity.
 	if cfg.ConnConfig.RuntimeParams == nil {
 		cfg.ConnConfig.RuntimeParams = map[string]string{}
 	}
@@ -51,30 +51,30 @@ func NewManager(ctx context.Context, dsn, adminDB string) (*Manager, error) {
 	return m, nil
 }
 
-// AdminDB retorna o nome do database administrativo.
+// AdminDB returns the name of the administrative database.
 func (m *Manager) AdminDB() string { return m.adminDB }
 
-// Pool retorna (criando se necessário) o pool para o database informado.
+// Pool returns (creating it if necessary) the pool for the given database.
 func (m *Manager) Pool(ctx context.Context, dbname string) (*pgxpool.Pool, error) {
 	m.mu.Lock()
 	if p, ok := m.pools[dbname]; ok {
 		m.mu.Unlock()
 		return p, nil
 	}
-	// Clona a config base trocando apenas o database.
+	// Clone the base config, swapping only the database.
 	cfg := m.baseCfg.Copy()
 	cfg.ConnConfig.Database = dbname
 	m.mu.Unlock()
 
 	p, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("conectar em %q: %w", dbname, err)
+		return nil, fmt.Errorf("connect to %q: %w", dbname, err)
 	}
 	pingCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	if err := p.Ping(pingCtx); err != nil {
 		p.Close()
-		return nil, fmt.Errorf("ping em %q: %w", dbname, err)
+		return nil, fmt.Errorf("ping %q: %w", dbname, err)
 	}
 
 	m.mu.Lock()
@@ -83,7 +83,7 @@ func (m *Manager) Pool(ctx context.Context, dbname string) (*pgxpool.Pool, error
 	return p, nil
 }
 
-// Close fecha todos os pools abertos.
+// Close closes all open pools.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()

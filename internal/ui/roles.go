@@ -72,7 +72,7 @@ func (v *rolesView) SetSize(w, h int) {
 		{Title: "SUPER", Width: 6},
 		{Title: "CREATEDB", Width: 9},
 		{Title: "CREATEROLE", Width: 11},
-		{Title: "MEMBRO DE", Width: 22},
+		{Title: "MEMBER OF", Width: 22},
 	})
 }
 
@@ -109,10 +109,10 @@ func (v *rolesView) Update(msg tea.Msg) tea.Cmd {
 		if msg.err != nil {
 			v.status = stErr.Render("✗ " + msg.action)
 			body := pgErrorText(msg.err)
-			if strings.HasPrefix(msg.action, "dropar role") {
+			if strings.HasPrefix(msg.action, "drop role") {
 				body += "\n\n" + dropRoleHint
 			}
-			v.alert.show(v.width, v.height, "Falha ao "+msg.action, body, true)
+			v.alert.show(v.width, v.height, "Failed to "+msg.action, body, true)
 			return nil
 		}
 		v.status = stGood.Render("✓ " + msg.action + " ok")
@@ -124,11 +124,11 @@ func (v *rolesView) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-const dropRoleHint = "COMO RESOLVER: o role possui objetos ou tem privilégios concedidos. " +
-	"Reatribua os objetos (REASSIGN OWNED BY \"role\" TO \"outro\") ou remova-os " +
-	"(DROP OWNED BY \"role\") em CADA database onde o role tem objetos, e revogue " +
-	"privilégios/ownership de databases, antes do DROP ROLE. Rode esses comandos " +
-	"pela aba Query (trocando o database alvo com '/')."
+const dropRoleHint = "HOW TO FIX: the role owns objects or has privileges granted. " +
+	"Reassign the objects (REASSIGN OWNED BY \"role\" TO \"other\") or remove them " +
+	"(DROP OWNED BY \"role\") in EACH database where the role owns objects, and revoke " +
+	"database privileges/ownership, before the DROP ROLE. Run these commands " +
+	"from the Query tab (switching the target database with '/')."
 
 func (v *rolesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	if v.alert.active {
@@ -138,9 +138,9 @@ func (v *rolesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	if v.confirm.active {
 		switch v.confirm.update(msg) {
 		case confirmYes:
-			return execStatements(v.mgr, "", "dropar role "+v.pendingDropRole, []string{db.BuildDropRole(v.pendingDropRole)})
+			return execStatements(v.mgr, "", "drop role "+v.pendingDropRole, []string{db.BuildDropRole(v.pendingDropRole)})
 		case confirmNo:
-			v.status = stStatus.Render("cancelado")
+			v.status = stStatus.Render("cancelled")
 		}
 		return nil
 	}
@@ -182,29 +182,29 @@ func (v *rolesView) selectedRole() (db.Role, bool) {
 
 func (v *rolesView) openCreateForm() tea.Cmd {
 	v.formKind = formCreateRole
-	return v.form.open("Criar role/usuário", []formField{
-		textField("name", "Nome", "ex.: app_user"),
-		secretField("password", "Senha"),
-		selectField("login", "Pode logar", []string{"sim", "não"}),
-		selectField("createdb", "CREATEDB", []string{"não", "sim"}),
-		selectField("createrole", "CREATEROLE", []string{"não", "sim"}),
+	return v.form.open("Create role/user", []formField{
+		textField("name", "Name", "e.g. app_user"),
+		secretField("password", "Password"),
+		selectField("login", "Can login", []string{"yes", "no"}),
+		selectField("createdb", "CREATEDB", []string{"no", "yes"}),
+		selectField("createrole", "CREATEROLE", []string{"no", "yes"}),
 	})
 }
 
 func (v *rolesView) openGrantForm() tea.Cmd {
 	role, ok := v.selectedRole()
 	if !ok {
-		v.status = stWarnV.Render("selecione um role primeiro")
+		v.status = stWarnV.Render("select a role first")
 		return nil
 	}
 	if len(v.dbNames) == 0 {
-		v.status = stWarnV.Render("lista de databases ainda não carregou")
+		v.status = stWarnV.Render("database list not loaded yet")
 		return nil
 	}
 	v.formKind = formGrant
-	return v.form.open("Grant · conceder a "+role.Name, []formField{
+	return v.form.open("Grant · to "+role.Name, []formField{
 		selectField("database", "Database", v.dbNames),
-		selectField("scope", "Privilégio", []string{
+		selectField("scope", "Privilege", []string{
 			db.GrantConnect.Label(),
 			db.GrantAllDatabase.Label(),
 			db.GrantSchemaAll.Label(),
@@ -224,11 +224,11 @@ func (v *rolesView) openForceDropForm() tea.Cmd {
 	}
 	v.pendingForceRole = role.Name
 	v.formKind = formForceDrop
-	succ := textField("successor", "Reatribuir p/", successor)
+	succ := textField("successor", "Reassign to", successor)
 	succ.input.SetValue(successor)
-	return v.form.open("⚠ Forçar remoção de "+role.Name+" (reatribui posse, não apaga dados)", []formField{
+	return v.form.open("⚠ Force-drop "+role.Name+" (reassigns ownership, keeps data)", []formField{
 		succ,
-		textField("confirm", "Confirmar", "digite o nome do role"),
+		textField("confirm", "Confirm", "type the role name"),
 	})
 }
 
@@ -238,7 +238,7 @@ func (v *rolesView) askDropRole() tea.Cmd {
 		return nil
 	}
 	v.pendingDropRole = role.Name
-	body := fmt.Sprintf("Isto vai remover o role %s do cluster.\nDigite o nome para confirmar:",
+	body := fmt.Sprintf("This will remove role %s from the cluster.\nType the name to confirm:",
 		stBadV.Render(role.Name))
 	return v.confirm.askCritical("⚠  DROP ROLE", body, role.Name)
 }
@@ -248,16 +248,16 @@ func (v *rolesView) submitForm() tea.Cmd {
 	case formCreateRole:
 		name := strings.TrimSpace(v.form.value("name"))
 		if name == "" {
-			v.status = stWarnV.Render("nome obrigatório")
+			v.status = stWarnV.Render("name is required")
 			return nil
 		}
 		_, login := v.form.selected("login")
 		_, createdb := v.form.selected("createdb")
 		_, createrole := v.form.selected("createrole")
-		sql := db.BuildCreateRole(name, v.form.value("password"), login == "sim", createdb == "sim", createrole == "sim")
+		sql := db.BuildCreateRole(name, v.form.value("password"), login == "yes", createdb == "yes", createrole == "yes")
 		v.form.close()
 		v.formKind = formNoneKind
-		return execStatements(v.mgr, "", "criar role "+name, []string{sql})
+		return execStatements(v.mgr, "", "create role "+name, []string{sql})
 
 	case formGrant:
 		role, ok := v.selectedRole()
@@ -278,29 +278,29 @@ func (v *rolesView) submitForm() tea.Cmd {
 		successor := strings.TrimSpace(v.form.value("successor"))
 		confirm := strings.TrimSpace(v.form.value("confirm"))
 		if confirm != v.pendingForceRole {
-			v.status = stWarnV.Render("confirmação incorreta — digite o nome exato do role")
+			v.status = stWarnV.Render("wrong confirmation — type the exact role name")
 			return nil
 		}
 		if successor == "" {
-			v.status = stWarnV.Render("informe o role sucessor da posse")
+			v.status = stWarnV.Render("enter the successor role")
 			return nil
 		}
 		if successor == v.pendingForceRole {
-			v.status = stWarnV.Render("o sucessor não pode ser o próprio role")
+			v.status = stWarnV.Render("successor cannot be the role itself")
 			return nil
 		}
 		doomed := v.pendingForceRole
 		v.form.close()
 		v.formKind = formNoneKind
-		v.status = stWarnV.Render("reatribuindo posse e removendo " + doomed + "…")
+		v.status = stWarnV.Render("reassigning ownership and removing " + doomed + "…")
 		return forceDropRole(v.mgr, doomed, successor)
 	}
 	return nil
 }
 
 func (v *rolesView) FooterHints() string {
-	return hint("n", "criar") + "  " + hint("g", "grant") + "  " + hint("D", "dropar") + "  " +
-		hint("F", "forçar drop") + "  " + hint("r", "atualizar") + "  " + hint("↑↓", "navegar")
+	return hint("n", "create") + "  " + hint("g", "grant") + "  " + hint("D", "drop") + "  " +
+		hint("F", "force-drop") + "  " + hint("r", "refresh") + "  " + hint("↑↓", "navigate")
 }
 
 func (v *rolesView) View() string {
@@ -314,12 +314,12 @@ func (v *rolesView) View() string {
 		return v.confirm.view(v.width, v.height)
 	}
 	if v.err != nil {
-		return "\n" + stErr.Render("Erro: "+v.err.Error())
+		return "\n" + stErr.Render("Error: "+v.err.Error())
 	}
-	title := lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render("Roles do cluster")
+	title := lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render("Cluster roles")
 	meta := stLabel.Render(fmt.Sprintf("  %d roles", len(v.roles)))
 	if v.loading {
-		meta = stLabel.Render("  carregando…")
+		meta = stLabel.Render("  loading…")
 	}
 	head := "\n" + title + meta
 	if v.status != "" {
@@ -330,7 +330,7 @@ func (v *rolesView) View() string {
 
 func yesno(b bool) string {
 	if b {
-		return "sim"
+		return "yes"
 	}
 	return "·"
 }

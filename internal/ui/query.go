@@ -35,7 +35,7 @@ type queryView struct {
 	mode     queryMode
 	targetDB string
 
-	// seletor de database (aberto com '/' ou ctrl+t)
+	// database selector (opened with '/' or ctrl+t)
 	dbNames    []string
 	dbFiltered []string
 	dbCursor   int
@@ -55,16 +55,16 @@ type queryView struct {
 
 func newQueryView(cfg *config.Config, mgr *db.Manager) *queryView {
 	ta := textarea.New()
-	ta.Placeholder = "SELECT * FROM pg_stat_activity LIMIT 20;   (i / enter para editar)"
+	ta.Placeholder = "SELECT * FROM pg_stat_activity LIMIT 20;   (i / enter to edit)"
 	ta.ShowLineNumbers = true
 	ta.CharLimit = 100000
 
 	ci := textinput.New()
-	ci.Placeholder = "digite: sim"
+	ci.Placeholder = "type: yes"
 	ci.CharLimit = 16
 
 	ti := textinput.New()
-	ti.Placeholder = "filtrar…"
+	ti.Placeholder = "filter…"
 	ti.CharLimit = 63
 
 	v := &queryView{
@@ -74,7 +74,7 @@ func newQueryView(cfg *config.Config, mgr *db.Manager) *queryView {
 		results:  newTable(),
 		confirm:  ci,
 		target:   ti,
-		mode:     modeResults, // inicia em navegação; 'i'/enter foca o editor
+		mode:     modeResults, // starts in navigation; 'i'/enter focuses the editor
 		targetDB: mgr.AdminDB(),
 	}
 	return v
@@ -86,8 +86,8 @@ func (v *queryView) CapturingInput() bool {
 	return v.mode == modeEdit || v.mode == modeConfirm || v.mode == modeTarget
 }
 
-// Init não precisa devolver comando: a aba entra em modo navegação (editor
-// desfocado) e o textarea cuida do próprio blink ao ser focado.
+// Init doesn't need to return a command: the tab enters navigation mode (editor
+// unfocused) and the textarea handles its own blink when focused.
 func (v *queryView) Init() tea.Cmd { return nil }
 
 func (v *queryView) SetSize(w, h int) {
@@ -121,9 +121,9 @@ func (v *queryView) Update(msg tea.Msg) tea.Cmd {
 				v.buildResults()
 				trunc := ""
 				if msg.res.Truncated {
-					trunc = fmt.Sprintf(" (truncado em %d)", len(msg.res.Rows))
+					trunc = fmt.Sprintf(" (truncated at %d)", len(msg.res.Rows))
 				}
-				v.status = fmt.Sprintf("%d linha(s)%s · %s", msg.res.RowCount, trunc, msg.res.Elapsed.Round(1e6))
+				v.status = fmt.Sprintf("%d row(s)%s · %s", msg.res.RowCount, trunc, msg.res.Elapsed.Round(1e6))
 				v.mode = modeResults
 				v.editor.Blur()
 			}
@@ -133,7 +133,7 @@ func (v *queryView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case databasesMsg:
-		// Alimenta o seletor de database ('/' ou ctrl+t). É broadcast.
+		// Feeds the database selector ('/' or ctrl+t). It's a broadcast.
 		if msg.err == nil {
 			v.dbNames = v.dbNames[:0]
 			for _, d := range msg.rows {
@@ -159,7 +159,7 @@ func (v *queryView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return v.handleTargetKey(msg)
 	}
 
-	// Teclas comuns a modeEdit e modeResults.
+	// Keys common to modeEdit and modeResults.
 	switch msg.String() {
 	case "ctrl+r", "f5":
 		return v.submit()
@@ -178,7 +178,7 @@ func (v *queryView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return cmd
 	}
 
-	// modeResults (navegação): teclas únicas são comandos.
+	// modeResults (navigation): single keys are commands.
 	switch msg.String() {
 	case "/":
 		return v.openTarget()
@@ -193,7 +193,7 @@ func (v *queryView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	return cmd
 }
 
-// openTarget abre o seletor de database: recarrega a lista e foca o filtro.
+// openTarget opens the database selector: reloads the list and focuses the filter.
 func (v *queryView) openTarget() tea.Cmd {
 	v.mode = modeTarget
 	v.editor.Blur()
@@ -203,8 +203,8 @@ func (v *queryView) openTarget() tea.Cmd {
 	return tea.Batch(loadDatabases(v.mgr), v.target.Focus())
 }
 
-// filterDBs recomputa a lista visível a partir do texto do filtro (substring,
-// case-insensitive) e mantém o cursor dentro dos limites.
+// filterDBs recomputes the visible list from the filter text (substring,
+// case-insensitive) and keeps the cursor within bounds.
 func (v *queryView) filterDBs() {
 	q := strings.ToLower(strings.TrimSpace(v.target.Value()))
 	v.dbFiltered = v.dbFiltered[:0]
@@ -228,10 +228,10 @@ func (v *queryView) handleConfirmKey(msg tea.KeyMsg) tea.Cmd {
 			v.cancelPending()
 			return nil
 		case tea.KeyEnter:
-			if strings.EqualFold(strings.TrimSpace(v.confirm.Value()), "sim") {
+			if strings.EqualFold(strings.TrimSpace(v.confirm.Value()), "yes") {
 				return v.execPending()
 			}
-			v.status = stBadV.Render("confirmação incorreta — digite 'sim' para prosseguir")
+			v.status = stBadV.Render("wrong confirmation — type 'yes' to proceed")
 			return nil
 		}
 		var cmd tea.Cmd
@@ -241,7 +241,7 @@ func (v *queryView) handleConfirmKey(msg tea.KeyMsg) tea.Cmd {
 
 	// Write: y/n
 	switch strings.ToLower(msg.String()) {
-	case "y", "s":
+	case "y":
 		return v.execPending()
 	case "n", "esc":
 		v.cancelPending()
@@ -270,7 +270,7 @@ func (v *queryView) handleTargetKey(msg tea.KeyMsg) tea.Cmd {
 		if v.dbCursor >= 0 && v.dbCursor < len(v.dbFiltered) {
 			name = v.dbFiltered[v.dbCursor]
 		} else {
-			// Sem item na lista: usa o texto digitado como nome literal.
+			// No item in the list: use the typed text as a literal name.
 			name = strings.TrimSpace(v.target.Value())
 		}
 		v.target.Blur()
@@ -280,23 +280,24 @@ func (v *queryView) handleTargetKey(msg tea.KeyMsg) tea.Cmd {
 		}
 		if name != v.targetDB {
 			v.targetDB = name
-			v.status = "alvo alterado para " + name
+			v.status = "target changed to " + name
 		}
 		v.mode = modeEdit
 		return v.editor.Focus()
 	}
-	// Demais teclas atualizam o filtro.
+	// Other keys update the filter.
 	var cmd tea.Cmd
 	v.target, cmd = v.target.Update(msg)
 	v.filterDBs()
 	return cmd
 }
 
-// submit valida o SQL e decide entre executar direto ou pedir confirmação.
+// submit validates the SQL and decides between running directly or asking for
+// confirmation.
 func (v *queryView) submit() tea.Cmd {
 	sql := strings.TrimSpace(v.editor.Value())
 	if sql == "" {
-		v.status = stWarnV.Render("query vazia")
+		v.status = stWarnV.Render("empty query")
 		return nil
 	}
 	v.err = nil
@@ -316,12 +317,12 @@ func (v *queryView) submit() tea.Cmd {
 	return nil
 }
 
-// explain roda EXPLAIN (plano, sem executar) da query do editor. EXPLAIN é
-// read-only, então dispensa confirmação.
+// explain runs EXPLAIN (plan, without running) on the editor's query. EXPLAIN
+// is read-only, so it skips confirmation.
 func (v *queryView) explain() tea.Cmd {
 	sql := strings.TrimSpace(v.editor.Value())
 	if sql == "" {
-		v.status = stWarnV.Render("query vazia")
+		v.status = stWarnV.Render("empty query")
 		return nil
 	}
 	v.err = nil
@@ -342,13 +343,13 @@ func (v *queryView) cancelPending() {
 	v.confirm.Blur()
 	v.confirm.SetValue("")
 	v.mode = modeEdit
-	v.status = stStatus.Render("execução cancelada")
+	v.status = stStatus.Render("execution cancelled")
 	_ = v.editor.Focus()
 }
 
 func (v *queryView) run(sql string) tea.Cmd {
 	v.running = true
-	v.status = "executando em " + v.targetDB + "…"
+	v.status = "running on " + v.targetDB + "…"
 	return runQuery(v.mgr, v.targetDB, sql)
 }
 
@@ -382,20 +383,20 @@ func (v *queryView) buildResults() {
 func (v *queryView) FooterHints() string {
 	switch v.mode {
 	case modeConfirm:
-		return hint("y/n", "confirmar/cancelar")
+		return hint("y/n", "confirm/cancel")
 	case modeTarget:
-		return hint("↑↓", "escolher") + "   " + hint("enter", "confirmar") + "   " + hint("esc", "cancelar")
+		return hint("↑↓", "choose") + "   " + hint("enter", "confirm") + "   " + hint("esc", "cancel")
 	case modeEdit:
-		return hint("ctrl+r", "executar") + "   " + hint("ctrl+t", "trocar db") + "   " + hint("esc", "resultados")
+		return hint("ctrl+r", "run") + "   " + hint("ctrl+t", "switch db") + "   " + hint("esc", "results")
 	default:
-		return hint("i", "editar") + "  " + hint("/", "trocar db") + "  " + hint("x", "explain") + "  " + hint("ctrl+r", "executar") + "  " + hint("↑↓", "rolar")
+		return hint("i", "edit") + "  " + hint("/", "switch db") + "  " + hint("x", "explain") + "  " + hint("ctrl+r", "run") + "  " + hint("↑↓", "scroll")
 	}
 }
 
 func (v *queryView) View() string {
-	// Cabeçalho do editor.
+	// Editor header.
 	label := lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render("SQL")
-	tgt := stLabel.Render("  alvo: ") + stValue.Render(v.targetDB)
+	tgt := stLabel.Render("  target: ") + stValue.Render(v.targetDB)
 	editorTitle := label + tgt
 
 	borderColor := colBorder
@@ -434,7 +435,7 @@ func (v *queryView) statusLine() string {
 	if v.status != "" {
 		return stStatus.Render(v.status)
 	}
-	return stKeyHint.Render("dica: ctrl+r executa · statements de escrita pedem confirmação")
+	return stKeyHint.Render("tip: ctrl+r runs · write statements ask for confirmation")
 }
 
 func (v *queryView) resultsArea() string {
@@ -444,22 +445,22 @@ func (v *queryView) resultsArea() string {
 	if v.hasRes {
 		return v.results.View()
 	}
-	return "\n  " + stKeyHint.Render("(sem resultados ainda)")
+	return "\n  " + stKeyHint.Render("(no results yet)")
 }
 
 func (v *queryView) overlayConfirm(bg string) string {
 	var title, body string
 	if v.pendingDanger == db.Critical {
 		title = lipgloss.NewStyle().Bold(true).Foreground(colOnDark).Background(colDanger).
-			Padding(0, 1).Render(" ⚠  OPERAÇÃO CRÍTICA ")
-		body = fmt.Sprintf("Este comando pode causar perda de dados:\n\n%s\n\nDigite %s e pressione Enter para executar:\n\n%s",
+			Padding(0, 1).Render(" ⚠  CRITICAL OPERATION ")
+		body = fmt.Sprintf("This command can cause data loss:\n\n%s\n\nType %s and press Enter to run:\n\n%s",
 			stBadV.Render(previewSQL(v.pendingSQL)),
-			stKey.Render("sim"),
+			stKey.Render("yes"),
 			v.confirm.View())
 	} else {
 		title = lipgloss.NewStyle().Bold(true).Foreground(colOnDark).Background(colWarn).
-			Padding(0, 1).Render(" Confirmar escrita ")
-		body = fmt.Sprintf("Statement de escrita:\n\n%s\n\n%s executar    %s cancelar",
+			Padding(0, 1).Render(" Confirm write ")
+		body = fmt.Sprintf("Write statement:\n\n%s\n\n%s run    %s cancel",
 			stWarnV.Render(previewSQL(v.pendingSQL)),
 			stKey.Render("y"), stKey.Render("n"))
 	}
@@ -469,9 +470,9 @@ func (v *queryView) overlayConfirm(bg string) string {
 
 func (v *queryView) overlayTarget(bg string) string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(colOnDark).Background(colAccent).
-		Padding(0, 1).Render(" Rodar queries em qual database? ")
+		Padding(0, 1).Render(" Run queries on which database? ")
 
-	// Lista filtrada (janela de até 12 itens ao redor do cursor).
+	// Filtered list (window of up to 12 items around the cursor).
 	const window = 12
 	start := 0
 	if v.dbCursor >= window {
@@ -484,7 +485,7 @@ func (v *queryView) overlayTarget(bg string) string {
 
 	var list strings.Builder
 	if len(v.dbFiltered) == 0 {
-		list.WriteString(stKeyHint.Render("  (nenhum database bate com o filtro)"))
+		list.WriteString(stKeyHint.Render("  (no database matches the filter)"))
 	}
 	for i := start; i < end; i++ {
 		name := v.dbFiltered[i]
@@ -501,8 +502,8 @@ func (v *queryView) overlayTarget(bg string) string {
 	}
 
 	count := fmt.Sprintf("%d/%d", len(v.dbFiltered), len(v.dbNames))
-	hints := stKeyHint.Render("↑↓ selecionar · enter confirmar · esc cancelar · " + count)
-	body := "filtro: " + v.target.View() + "\n\n" + strings.TrimRight(list.String(), "\n") + "\n\n" + hints
+	hints := stKeyHint.Render("↑↓ select · enter confirm · esc cancel · " + count)
+	body := "filter: " + v.target.View() + "\n\n" + strings.TrimRight(list.String(), "\n") + "\n\n" + hints
 
 	box := stModal.BorderForeground(colAccent).Width(46).Render(title + "\n\n" + body)
 	return lipgloss.Place(v.width, v.height, lipgloss.Center, lipgloss.Center, box)

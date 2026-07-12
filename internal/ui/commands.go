@@ -12,7 +12,7 @@ import (
 	"github.com/9level/pg-tui/internal/db"
 )
 
-// --- mensagens assíncronas ---
+// --- async messages ---
 
 type dashboardMsg struct {
 	data db.DashboardData
@@ -52,7 +52,7 @@ type sessionsMsg struct {
 }
 
 type sessionActionMsg struct {
-	action string // "cancelar" | "encerrar"
+	action string // "cancel" | "terminate"
 	pid    int32
 	ok     bool
 	err    error
@@ -68,7 +68,7 @@ type describeMsg struct {
 	err  error
 }
 
-// execMsg é o resultado de uma ação administrativa (create/drop/grant).
+// execMsg is the result of an administrative action (create/drop/grant).
 type execMsg struct {
 	action string
 	tag    string
@@ -82,7 +82,7 @@ const (
 	queryTimeout   = 60 * time.Second
 )
 
-// loadDashboard consulta as métricas de cluster no database admin.
+// loadDashboard queries the cluster metrics on the admin database.
 func loadDashboard(mgr *db.Manager) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), clusterTimeout)
@@ -148,8 +148,8 @@ func runQuery(mgr *db.Manager, dbname, sql string) tea.Cmd {
 	}
 }
 
-// loadTableData roda uma query (read-only, do navegador de dados) num database
-// específico. token permite descartar resultados obsoletos.
+// loadTableData runs a query (read-only, from the data browser) on a specific
+// database. token allows discarding stale results.
 func loadTableData(mgr *db.Manager, dbname, sql string, token int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
@@ -185,7 +185,7 @@ func sessionAction(mgr *db.Manager, action string, pid int32) tea.Cmd {
 			return sessionActionMsg{action: action, pid: pid, err: err}
 		}
 		var ok bool
-		if action == "encerrar" {
+		if action == "terminate" {
 			ok, err = db.TerminateBackend(ctx, p, pid)
 		} else {
 			ok, err = db.CancelBackend(ctx, p, pid)
@@ -220,8 +220,8 @@ func describeTable(mgr *db.Manager, dbname, schema, table string) tea.Cmd {
 	}
 }
 
-// execStatements roda uma sequência de statements (admin) no database indicado
-// (dbname vazio = admin db), parando no primeiro erro.
+// execStatements runs a sequence of (admin) statements on the given database
+// (empty dbname = admin db), stopping at the first error.
 func execStatements(mgr *db.Manager, dbname, action string, stmts []string) tea.Cmd {
 	return func() tea.Msg {
 		if dbname == "" {
@@ -244,25 +244,25 @@ func execStatements(mgr *db.Manager, dbname, action string, stmts []string) tea.
 	}
 }
 
-// forceDropRole remove um role com dependências reatribuindo a posse dos
-// objetos ao successor (sem apagar dados) e então executando DROP ROLE.
+// forceDropRole removes a role with dependencies by reassigning ownership of
+// objects to the successor (without dropping data) and then running DROP ROLE.
 func forceDropRole(mgr *db.Manager, doomed, successor string) tea.Cmd {
 	return func() tea.Msg {
-		action := "forçar remoção de " + doomed
+		action := "force-drop " + doomed
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 
 		warnings, err := db.ForceDropRole(ctx, mgr, doomed, successor)
 		if err != nil {
-			msg := "Mesmo após reatribuir a posse, o DROP ROLE falhou:\n\n" + pgErrorText(err)
+			msg := "Even after reassigning ownership, DROP ROLE failed:\n\n" + pgErrorText(err)
 			if len(warnings) > 0 {
-				msg += "\n\nAvisos durante o processo:\n- " + strings.Join(warnings, "\n- ")
+				msg += "\n\nWarnings during the process:\n- " + strings.Join(warnings, "\n- ")
 			}
 			return execMsg{action: action, err: errors.New(msg)}
 		}
-		tag := fmt.Sprintf("role %s removido; posse reatribuída para %s", doomed, successor)
+		tag := fmt.Sprintf("role %s removed; ownership reassigned to %s", doomed, successor)
 		if len(warnings) > 0 {
-			tag += fmt.Sprintf(" (%d avisos ignorados)", len(warnings))
+			tag += fmt.Sprintf(" (%d warnings ignored)", len(warnings))
 		}
 		return execMsg{action: action, tag: tag}
 	}

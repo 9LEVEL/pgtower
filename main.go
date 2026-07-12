@@ -1,9 +1,9 @@
-// Command pgtui é um TUI de administração de PostgreSQL para sysadmins.
+// Command pgtui is a PostgreSQL administration TUI for sysadmins.
 //
-// Conecta em um cluster Postgres via DATABASE_URL (arquivo .env) e oferece,
-// com navegação por teclado: dashboard de saúde, navegação de bancos e
-// tabelas com tamanhos, árvore de bloqueios e um query runner com
-// confirmação para statements de escrita/destrutivos.
+// It connects to a Postgres cluster via DATABASE_URL (.env file) and offers,
+// with keyboard navigation: a health dashboard, browsing of databases and
+// tables with sizes, a blocking tree, and a query runner with confirmation
+// for write/destructive statements.
 package main
 
 import (
@@ -18,7 +18,7 @@ import (
 	"github.com/9level/pg-tui/internal/ui"
 )
 
-// version é injetado no build via -ldflags "-X main.version=vX.Y.Z".
+// version is injected at build time via -ldflags "-X main.version=vX.Y.Z".
 var version = "dev"
 
 func main() {
@@ -28,8 +28,8 @@ func main() {
 			return
 		}
 		if a == "-h" || a == "--help" {
-			fmt.Println("uso: pgtui   (lê ./.env ou variáveis PG*/DATABASE_URL)\n\n" +
-				"TUI de administração de PostgreSQL. Atalhos: '?' dentro do app.")
+			fmt.Println("usage: pgtui   (reads ./.env or PG*/DATABASE_URL variables)\n\n" +
+				"PostgreSQL administration TUI. Shortcuts: '?' inside the app.")
 			return
 		}
 	}
@@ -49,7 +49,7 @@ func run() error {
 	ctx := context.Background()
 	mgr, err := db.NewManager(ctx, cfg.URL, cfg.AdminDB)
 	if err != nil {
-		return fmt.Errorf("conectar ao Postgres (%s@%s:%s): %w", cfg.User, cfg.Host, cfg.Port, err)
+		return fmt.Errorf("connect to Postgres (%s@%s:%s): %w", cfg.User, cfg.Host, cfg.Port, err)
 	}
 	defer mgr.Close()
 

@@ -13,7 +13,7 @@ import (
 // Dashboard
 // ---------------------------------------------------------------------------
 
-// DashboardData agrega métricas de saúde do cluster.
+// DashboardData aggregates cluster health metrics.
 type DashboardData struct {
 	Version       string
 	StartedAt     time.Time
@@ -23,7 +23,7 @@ type DashboardData struct {
 	Active        int
 	Idle          int
 	IdleInTx      int
-	CacheHitRatio float64 // percentual
+	CacheHitRatio float64 // percentage
 	Commits       int64
 	Rollbacks     int64
 	DBCount       int
@@ -32,7 +32,7 @@ type DashboardData struct {
 	Replicas      []Replica
 }
 
-// Replica descreve um standby conectado via streaming replication.
+// Replica describes a standby connected via streaming replication.
 type Replica struct {
 	ClientAddr string
 	State      string
@@ -40,7 +40,7 @@ type Replica struct {
 	Lag        string
 }
 
-// LoadDashboard coleta as métricas de cluster a partir do database admin.
+// LoadDashboard collects the cluster metrics from the admin database.
 func LoadDashboard(ctx context.Context, p Pinger) (DashboardData, error) {
 	var d DashboardData
 
@@ -103,10 +103,10 @@ func shortVersion(v string) string {
 }
 
 // ---------------------------------------------------------------------------
-// Databases & tabelas
+// Databases & tables
 // ---------------------------------------------------------------------------
 
-// Database é uma linha da lista de bancos.
+// Database is a row in the database list.
 type Database struct {
 	Name        string
 	Owner       string
@@ -115,7 +115,7 @@ type Database struct {
 	Connections int
 }
 
-// ListDatabases retorna todos os bancos não-template ordenados por tamanho.
+// ListDatabases returns all non-template databases ordered by size.
 func ListDatabases(ctx context.Context, p Pinger) ([]Database, error) {
 	rows, err := p.Query(ctx, `
 		select d.datname,
@@ -142,7 +142,7 @@ func ListDatabases(ctx context.Context, p Pinger) ([]Database, error) {
 	return out, rows.Err()
 }
 
-// Table é uma linha da lista de tabelas de um database.
+// Table is a row in a database's table list.
 type Table struct {
 	Schema     string
 	Name       string
@@ -153,8 +153,8 @@ type Table struct {
 	EstRows    int64
 }
 
-// ListTables lista tabelas (ordinárias e particionadas) de user schemas,
-// ordenadas por tamanho total (heap + índices + toast).
+// ListTables lists tables (ordinary and partitioned) from user schemas,
+// ordered by total size (heap + indexes + toast).
 func ListTables(ctx context.Context, p Pinger) ([]Table, error) {
 	rows, err := p.Query(ctx, `
 		select n.nspname as schema,
@@ -187,10 +187,10 @@ func ListTables(ctx context.Context, p Pinger) ([]Table, error) {
 }
 
 // ---------------------------------------------------------------------------
-// Locks / bloqueios
+// Locks / blocking
 // ---------------------------------------------------------------------------
 
-// BlockPair descreve uma sessão bloqueada e a sessão que a bloqueia.
+// BlockPair describes a blocked session and the session blocking it.
 type BlockPair struct {
 	BlockedPID   int32
 	BlockedUser  string
@@ -203,7 +203,7 @@ type BlockPair struct {
 	BlockingQ    string
 }
 
-// ListBlocks retorna a árvore de bloqueios atual (quem espera por quem).
+// ListBlocks returns the current blocking tree (who waits on whom).
 func ListBlocks(ctx context.Context, p Pinger) ([]BlockPair, error) {
 	rows, err := p.Query(ctx, `
 		select blocked.pid,
@@ -242,21 +242,21 @@ func ListBlocks(ctx context.Context, p Pinger) ([]BlockPair, error) {
 // Query runner
 // ---------------------------------------------------------------------------
 
-// QueryResult carrega o resultado de uma query ad-hoc.
+// QueryResult carries the result of an ad-hoc query.
 type QueryResult struct {
 	Columns   []string
 	Rows      [][]string
-	Command   string // command tag (ex.: "UPDATE 3") para statements sem retorno
-	RowCount  int    // linhas retornadas (SELECT) ou afetadas
+	Command   string // command tag (e.g. "UPDATE 3") for statements without a result
+	RowCount  int    // rows returned (SELECT) or affected
 	Elapsed   time.Duration
 	Truncated bool
 }
 
-// maxResultRows limita o material trazido para a UI de uma única query.
+// maxResultRows limits the material brought to the UI for a single query.
 const maxResultRows = 1000
 
-// RunQuery executa SQL arbitrário no pool informado e devolve as linhas
-// (limitadas) ou o command tag. Usa um timeout de statement para não travar.
+// RunQuery runs arbitrary SQL on the given pool and returns the (limited) rows
+// or the command tag. It uses a statement timeout to avoid hanging.
 func RunQuery(ctx context.Context, p Pinger, sql string) (QueryResult, error) {
 	start := time.Now()
 	var res QueryResult
@@ -291,7 +291,7 @@ func RunQuery(ctx context.Context, p Pinger, sql string) (QueryResult, error) {
 	res.Elapsed = time.Since(start)
 
 	if len(res.Columns) == 0 {
-		// Statement sem result set (INSERT/UPDATE/DDL...).
+		// Statement without a result set (INSERT/UPDATE/DDL...).
 		res.Command = tag.String()
 		res.RowCount = int(tag.RowsAffected())
 	} else {
@@ -323,7 +323,7 @@ func formatValue(v any) string {
 	}
 }
 
-// collapse normaliza whitespace para caber numa célula de tabela.
+// collapse normalizes whitespace to fit in a table cell.
 func collapse(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\t", " ")
@@ -344,7 +344,7 @@ func hexPreview(b []byte) string {
 	return string(out)
 }
 
-// Pinger abstrai *pgxpool.Pool para facilitar testes e reuso.
+// Pinger abstracts *pgxpool.Pool to ease testing and reuse.
 type Pinger interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)

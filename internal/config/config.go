@@ -1,4 +1,4 @@
-// Package config carrega a configuração do TUI a partir do ambiente / .env.
+// Package config loads the TUI configuration from the environment / .env.
 package config
 
 import (
@@ -11,32 +11,32 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Config guarda os parâmetros de conexão ao cluster Postgres gerenciado.
+// Config holds the connection parameters for the managed Postgres cluster.
 type Config struct {
-	// URL é o DSN base (postgres://user:pass@host:port/db?sslmode=...).
-	// O nome do database é trocado em runtime ao navegar entre bancos.
+	// URL is the base DSN (postgres://user:pass@host:port/db?sslmode=...).
+	// The database name is swapped at runtime when navigating between databases.
 	URL string
 
-	// AdminDB é o database usado para consultas de nível de cluster
-	// (pg_database, pg_stat_activity, replicação). Derivado da URL.
+	// AdminDB is the database used for cluster-level queries
+	// (pg_database, pg_stat_activity, replication). Derived from the URL.
 	AdminDB string
 
-	// Host/Port apenas para exibição no cabeçalho do TUI.
+	// Host/Port only for display in the TUI header.
 	Host string
 	Port string
 	User string
 
-	// RefreshSeconds controla o auto-refresh do dashboard.
+	// RefreshSeconds controls the dashboard auto-refresh.
 	RefreshSeconds int
 
-	// Version é a versão do binário (injetada em main via -ldflags), exibida
-	// no cabeçalho. Preenchida por quem constrói a Config.
+	// Version is the binary version (injected in main via -ldflags), shown
+	// in the header. Filled in by whoever builds the Config.
 	Version string
 }
 
-// Load procura por um arquivo .env (no diretório atual e no do executável),
-// carrega no ambiente e monta a Config. Variáveis já presentes no ambiente
-// têm precedência sobre o .env.
+// Load looks for a .env file (in the current directory and next to the
+// executable), loads it into the environment and builds the Config. Variables
+// already present in the environment take precedence over the .env.
 func Load() (*Config, error) {
 	loadDotenv()
 
@@ -45,12 +45,12 @@ func Load() (*Config, error) {
 		raw = buildFromParts()
 	}
 	if raw == "" {
-		return nil, errors.New("DATABASE_URL não definido (nem PGHOST/PGUSER/...). Copie .env.example para .env e ajuste")
+		return nil, errors.New("DATABASE_URL not set (nor PGHOST/PGUSER/...). Copy .env.example to .env and adjust it")
 	}
 
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("DATABASE_URL inválido: %w", err)
+		return nil, fmt.Errorf("invalid DATABASE_URL: %w", err)
 	}
 
 	admin := strings.TrimPrefix(u.Path, "/")
@@ -78,8 +78,8 @@ func Load() (*Config, error) {
 	}, nil
 }
 
-// loadDotenv carrega .env do diretório de trabalho e ao lado do binário,
-// sem sobrescrever variáveis já exportadas.
+// loadDotenv loads .env from the working directory and next to the binary,
+// without overwriting already-exported variables.
 func loadDotenv() {
 	_ = godotenv.Load(".env")
 	if exe, err := os.Executable(); err == nil {

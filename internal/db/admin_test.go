@@ -35,13 +35,13 @@ func TestBuilders(t *testing.T) {
 	}
 }
 
-// TestAdminRoundtripLive cria e apaga um role e um database descartáveis, sem
-// tocar nos objetos existentes. Prova o caminho de ExecAdmin (protocolo
-// simples, necessário para CREATE/DROP DATABASE).
+// TestAdminRoundtripLive creates and drops a throwaway role and database,
+// without touching existing objects. It exercises the ExecAdmin path (simple
+// protocol, required for CREATE/DROP DATABASE).
 func TestAdminRoundtripLive(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		t.Skip("DATABASE_URL não definido")
+		t.Skip("DATABASE_URL not set")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -59,7 +59,7 @@ func TestAdminRoundtripLive(t *testing.T) {
 	const role = "pgtui_selftest_role"
 	const database = "pgtui_selftest_db"
 
-	// cleanup preventivo + no fim (idempotente)
+	// preventive cleanup + at the end (idempotent)
 	cleanup := func() {
 		_, _ = db.ExecAdmin(ctx, p, "DROP DATABASE IF EXISTS "+db.QuoteIdent(database))
 		_, _ = db.ExecAdmin(ctx, p, "DROP ROLE IF EXISTS "+db.QuoteIdent(role))
@@ -70,7 +70,7 @@ func TestAdminRoundtripLive(t *testing.T) {
 	if _, err := db.ExecAdmin(ctx, p, db.BuildCreateRole(role, "s3cr3t", true, true, false)); err != nil {
 		t.Fatalf("CREATE ROLE: %v", err)
 	}
-	// CREATE DATABASE: o teste-chave do protocolo simples.
+	// CREATE DATABASE: the key test of the simple protocol.
 	if _, err := db.ExecAdmin(ctx, p, db.BuildCreateDatabase(database, role)); err != nil {
 		t.Fatalf("CREATE DATABASE: %v", err)
 	}
@@ -83,14 +83,14 @@ func TestAdminRoundtripLive(t *testing.T) {
 
 	roles, err := db.ListRoles(ctx, p)
 	if err != nil || !hasRole(roles, role) {
-		t.Fatalf("role criado não aparece em ListRoles (err=%v)", err)
+		t.Fatalf("created role does not appear in ListRoles (err=%v)", err)
 	}
 	dbs, err := db.ListDatabases(ctx, p)
 	if err != nil || !hasDB(dbs, database) {
-		t.Fatalf("database criado não aparece em ListDatabases (err=%v)", err)
+		t.Fatalf("created database does not appear in ListDatabases (err=%v)", err)
 	}
 
-	// derruba tudo e confirma que sumiu
+	// drop everything and confirm it is gone
 	if _, err := db.ExecAdmin(ctx, p, db.BuildDropDatabase(database)); err != nil {
 		t.Fatalf("DROP DATABASE: %v", err)
 	}
@@ -99,17 +99,17 @@ func TestAdminRoundtripLive(t *testing.T) {
 	}
 	dbs, _ = db.ListDatabases(ctx, p)
 	if hasDB(dbs, database) {
-		t.Error("database ainda existe após DROP")
+		t.Error("database still exists after DROP")
 	}
 }
 
-// TestForceDropRoleLive prova que forçar a remoção de um role dono de um
-// database e de uma tabela REMOVE o role mas PRESERVA o banco e a tabela
-// (posse reatribuída ao successor, sem perda de dados).
+// TestForceDropRoleLive proves that force-dropping a role that owns a database
+// and a table REMOVES the role but PRESERVES the database and table (ownership
+// reassigned to the successor, no data loss).
 func TestForceDropRoleLive(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		t.Skip("DATABASE_URL não definido")
+		t.Skip("DATABASE_URL not set")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -127,7 +127,7 @@ func TestForceDropRoleLive(t *testing.T) {
 	drop(admin, "DROP DATABASE IF EXISTS "+db.QuoteIdent(database))
 	drop(admin, "DROP ROLE IF EXISTS "+db.QuoteIdent(role))
 
-	// cleanup: fecha pools (libera conexões) e dropa com conexão nova.
+	// cleanup: close pools (release connections) and drop with a fresh connection.
 	defer func() {
 		mgr.Close()
 		ctx2, c2 := context.WithTimeout(context.Background(), 15*time.Second)
@@ -155,32 +155,32 @@ func TestForceDropRoleLive(t *testing.T) {
 	mustExec("CREATE TABLE", p, "create table pgtui_t (id int)")
 	mustExec("ALTER TABLE OWNER", p, "alter table pgtui_t owner to "+db.QuoteIdent(role))
 
-	// força a remoção reatribuindo tudo para postgres
+	// force removal by reassigning everything to postgres
 	warnings, err := db.ForceDropRole(ctx, mgr, role, "postgres")
 	if err != nil {
-		t.Fatalf("ForceDropRole: %v (avisos: %v)", err, warnings)
+		t.Fatalf("ForceDropRole: %v (warnings: %v)", err, warnings)
 	}
 
 	roles, _ := db.ListRoles(ctx, admin)
 	if hasRole(roles, role) {
-		t.Error("role ainda existe após forçar drop")
+		t.Error("role still exists after force-drop")
 	}
 	dbs, _ := db.ListDatabases(ctx, admin)
 	if !hasDB(dbs, database) {
-		t.Fatal("o database foi APAGADO — deveria ter sido reatribuído, não removido")
+		t.Fatal("the database was DROPPED — it should have been reassigned, not removed")
 	}
-	// a tabela deve continuar existindo (agora dona = postgres)
+	// the table must still exist (owner is now postgres)
 	p2, _ := mgr.Pool(ctx, database)
 	d, err := db.DescribeTable(ctx, p2, "public", "pgtui_t")
 	if err != nil || len(d.Columns) == 0 {
-		t.Errorf("a tabela sumiu após forçar drop (perda de dados!): %v", err)
+		t.Errorf("the table disappeared after force-drop (data loss!): %v", err)
 	}
 }
 
 func TestDescribeLive(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		t.Skip("DATABASE_URL não definido")
+		t.Skip("DATABASE_URL not set")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -196,7 +196,7 @@ func TestDescribeLive(t *testing.T) {
 		t.Fatalf("DescribeTable: %v", err)
 	}
 	if len(d.Columns) < 5 {
-		t.Errorf("pg_class deveria ter várias colunas, veio %d", len(d.Columns))
+		t.Errorf("pg_class should have several columns, got %d", len(d.Columns))
 	}
 
 	if _, err := db.ListSessions(ctx, p); err != nil {

@@ -16,9 +16,9 @@ const (
 	confirmNo
 )
 
-// confirmModal é um diálogo de confirmação reutilizável. No modo crítico, o
-// usuário precisa digitar exatamente `token` (ex.: o nome do objeto) — guarda
-// contra deleção acidental de bancos/roles.
+// confirmModal is a reusable confirmation dialog. In critical mode, the user
+// must type exactly `token` (e.g. the object name) — a guard against accidental
+// deletion of databases/roles.
 type confirmModal struct {
 	active   bool
 	critical bool
@@ -45,7 +45,7 @@ func (c *confirmModal) askCritical(title, body, token string) tea.Cmd {
 	c.active, c.critical = true, true
 	c.title, c.body, c.token = title, body, token
 	c.input.SetValue("")
-	c.input.Placeholder = "digite: " + token
+	c.input.Placeholder = "type: " + token
 	return c.input.Focus()
 }
 
@@ -69,13 +69,13 @@ func (c *confirmModal) update(msg tea.KeyMsg) confirmResult {
 				c.close()
 				return confirmYes
 			}
-			return confirmNone // texto incorreto: não confirma
+			return confirmNone // wrong text: does not confirm
 		}
 		c.input, _ = c.input.Update(msg)
 		return confirmNone
 	}
 	switch strings.ToLower(msg.String()) {
-	case "y", "s":
+	case "y":
 		c.close()
 		return confirmYes
 	case "n", "esc":
@@ -95,9 +95,9 @@ func (c *confirmModal) view(w, h int) string {
 
 	var footer string
 	if c.critical {
-		footer = c.input.View() + "\n\n" + stKey.Render("enter") + " confirmar   " + stKey.Render("esc") + " cancelar"
+		footer = c.input.View() + "\n\n" + stKey.Render("enter") + " confirm   " + stKey.Render("esc") + " cancel"
 	} else {
-		footer = stKey.Render("y") + " confirmar   " + stKey.Render("n") + " cancelar"
+		footer = stKey.Render("y") + " confirm   " + stKey.Render("n") + " cancel"
 	}
 
 	content := title + "\n\n" + c.body + "\n\n" + footer
