@@ -103,6 +103,80 @@ func TestAdminRoundtripLive(t *testing.T) {
 	}
 }
 
+// TestForceDropRoleLive prova que forçar a remoção de um role dono de um
+// database e de uma tabela REMOVE o role mas PRESERVA o banco e a tabela
+// (posse reatribuída ao successor, sem perda de dados).
+func TestForceDropRoleLive(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL não definido")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	const role = "pgtui_force_role"
+	const database = "pgtui_force_db"
+
+	mgr, err := db.NewManager(ctx, dsn, "postgres")
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	admin, _ := mgr.Pool(ctx, "postgres")
+
+	drop := func(p db.Pinger, sql string) { _, _ = db.ExecAdmin(ctx, p, sql) }
+	drop(admin, "DROP DATABASE IF EXISTS "+db.QuoteIdent(database))
+	drop(admin, "DROP ROLE IF EXISTS "+db.QuoteIdent(role))
+
+	// cleanup: fecha pools (libera conexões) e dropa com conexão nova.
+	defer func() {
+		mgr.Close()
+		ctx2, c2 := context.WithTimeout(context.Background(), 15*time.Second)
+		defer c2()
+		if m2, err := db.NewManager(ctx2, dsn, "postgres"); err == nil {
+			p, _ := m2.Pool(ctx2, "postgres")
+			drop2 := func(sql string) { _, _ = db.ExecAdmin(ctx2, p, sql) }
+			drop2("DROP DATABASE IF EXISTS " + db.QuoteIdent(database))
+			drop2("DROP ROLE IF EXISTS " + db.QuoteIdent(role))
+			m2.Close()
+		}
+	}()
+
+	mustExec := func(what string, p db.Pinger, sql string) {
+		if _, e := db.ExecAdmin(ctx, p, sql); e != nil {
+			t.Fatalf("%s: %v", what, e)
+		}
+	}
+	mustExec("CREATE ROLE", admin, db.BuildCreateRole(role, "x", true, false, false))
+	mustExec("CREATE DATABASE", admin, db.BuildCreateDatabase(database, role))
+	p, err := mgr.Pool(ctx, database)
+	if err != nil {
+		t.Fatalf("Pool(%s): %v", database, err)
+	}
+	mustExec("CREATE TABLE", p, "create table pgtui_t (id int)")
+	mustExec("ALTER TABLE OWNER", p, "alter table pgtui_t owner to "+db.QuoteIdent(role))
+
+	// força a remoção reatribuindo tudo para postgres
+	warnings, err := db.ForceDropRole(ctx, mgr, role, "postgres")
+	if err != nil {
+		t.Fatalf("ForceDropRole: %v (avisos: %v)", err, warnings)
+	}
+
+	roles, _ := db.ListRoles(ctx, admin)
+	if hasRole(roles, role) {
+		t.Error("role ainda existe após forçar drop")
+	}
+	dbs, _ := db.ListDatabases(ctx, admin)
+	if !hasDB(dbs, database) {
+		t.Fatal("o database foi APAGADO — deveria ter sido reatribuído, não removido")
+	}
+	// a tabela deve continuar existindo (agora dona = postgres)
+	p2, _ := mgr.Pool(ctx, database)
+	d, err := db.DescribeTable(ctx, p2, "public", "pgtui_t")
+	if err != nil || len(d.Columns) == 0 {
+		t.Errorf("a tabela sumiu após forçar drop (perda de dados!): %v", err)
+	}
+}
+
 func TestDescribeLive(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {

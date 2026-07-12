@@ -2,9 +2,69 @@ package db
 
 import (
 	"context"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
+
+// ForceDropRole remove um role mesmo com dependências, SEM apagar dados:
+// reatribui a posse dos databases e dos objetos ao successor, revoga os
+// privilégios do role em cada database, e por fim executa DROP ROLE. Retorna
+// avisos não-fatais por database e o erro do DROP ROLE final (se houver).
+func ForceDropRole(ctx context.Context, mgr *Manager, doomed, successor string) ([]string, error) {
+	admin, err := mgr.Pool(ctx, mgr.AdminDB())
+	if err != nil {
+		return nil, err
+	}
+	var warnings []string
+
+	// 1. reatribui a posse dos databases que o role possui (não apaga banco).
+	ownedDBs, err := DatabasesOwnedBy(ctx, admin, doomed)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range ownedDBs {
+		sql := "ALTER DATABASE " + QuoteIdent(d) + " OWNER TO " + QuoteIdent(successor)
+		if _, e := ExecAdmin(ctx, admin, sql); e != nil {
+			warnings = append(warnings, "ALTER DATABASE "+d+": "+oneLine(e))
+		}
+	}
+
+	// 2. em cada database: reatribui objetos (REASSIGN OWNED, sem perda de
+	//    dados) e depois revoga privilégios (DROP OWNED).
+	dbs, err := ConnectableDatabases(ctx, admin)
+	if err != nil {
+		return warnings, err
+	}
+	for _, dbn := range dbs {
+		p, e := mgr.Pool(ctx, dbn)
+		if e != nil {
+			warnings = append(warnings, "conectar em "+dbn+": "+oneLine(e))
+			continue
+		}
+		if _, e := ExecAdmin(ctx, p, "REASSIGN OWNED BY "+QuoteIdent(doomed)+" TO "+QuoteIdent(successor)); e != nil {
+			warnings = append(warnings, "REASSIGN em "+dbn+": "+oneLine(e))
+			continue
+		}
+		if _, e := ExecAdmin(ctx, p, "DROP OWNED BY "+QuoteIdent(doomed)); e != nil {
+			warnings = append(warnings, "DROP OWNED em "+dbn+": "+oneLine(e))
+		}
+	}
+
+	// 3. finalmente remove o role.
+	if _, e := ExecAdmin(ctx, admin, BuildDropRole(doomed)); e != nil {
+		return warnings, e
+	}
+	return warnings, nil
+}
+
+func oneLine(err error) string {
+	s := strings.ReplaceAll(err.Error(), "\n", " ")
+	if len(s) > 160 {
+		s = s[:160] + "…"
+	}
+	return s
+}
 
 // ExecAdmin executa um statement administrativo (CREATE/DROP/GRANT/ALTER) no
 // protocolo simples. Necessário porque CREATE/DROP DATABASE não rodam no
@@ -60,6 +120,50 @@ func ListRoles(ctx context.Context, p Pinger) ([]Role, error) {
 			return nil, err
 		}
 		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// DatabasesOwnedBy retorna os databases (não-template) cujo dono é o role.
+func DatabasesOwnedBy(ctx context.Context, p Pinger, role string) ([]string, error) {
+	rows, err := p.Query(ctx, `
+		select d.datname
+		from pg_database d
+		join pg_roles r on r.oid = d.datdba
+		where r.rolname = $1 and not d.datistemplate
+		order by 1`, role)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// ConnectableDatabases retorna os databases não-template que aceitam conexão.
+func ConnectableDatabases(ctx context.Context, p Pinger) ([]string, error) {
+	rows, err := p.Query(ctx, `
+		select datname from pg_database
+		where not datistemplate and datallowconn
+		order by 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
 	}
 	return out, rows.Err()
 }

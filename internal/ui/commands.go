@@ -2,6 +2,9 @@ package ui
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -236,6 +239,30 @@ func execStatements(mgr *db.Manager, dbname, action string, stmts []string) tea.
 			if err != nil {
 				return execMsg{action: action, err: err}
 			}
+		}
+		return execMsg{action: action, tag: tag}
+	}
+}
+
+// forceDropRole remove um role com dependências reatribuindo a posse dos
+// objetos ao successor (sem apagar dados) e então executando DROP ROLE.
+func forceDropRole(mgr *db.Manager, doomed, successor string) tea.Cmd {
+	return func() tea.Msg {
+		action := "forçar remoção de " + doomed
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		warnings, err := db.ForceDropRole(ctx, mgr, doomed, successor)
+		if err != nil {
+			msg := "Mesmo após reatribuir a posse, o DROP ROLE falhou:\n\n" + pgErrorText(err)
+			if len(warnings) > 0 {
+				msg += "\n\nAvisos durante o processo:\n- " + strings.Join(warnings, "\n- ")
+			}
+			return execMsg{action: action, err: errors.New(msg)}
+		}
+		tag := fmt.Sprintf("role %s removido; posse reatribuída para %s", doomed, successor)
+		if len(warnings) > 0 {
+			tag += fmt.Sprintf(" (%d avisos ignorados)", len(warnings))
 		}
 		return execMsg{action: action, tag: tag}
 	}

@@ -51,7 +51,7 @@ func New(cfg *config.Config, mgr *db.Manager) *Model {
 		newQueryView(cfg, mgr),
 		newLocksView(mgr),
 		newSessionsView(mgr),
-		newRolesView(mgr),
+		newRolesView(cfg, mgr),
 	}
 	return m
 }

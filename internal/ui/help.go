@@ -53,6 +53,7 @@ func (m *Model) overlayHelp(bg string) string {
 		{"n", "criar role/usuário"},
 		{"g", "grant a um database"},
 		{"D", "apagar role (digita o nome p/ confirmar)"},
+		{"F", "forçar drop: reatribui posse a outro role e remove"},
 		{"", ""},
 		{"Locks", ""},
 		{"r", "recarregar árvore de bloqueios"},

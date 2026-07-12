@@ -10,7 +10,7 @@ Conecta em um cluster via `DATABASE_URL` e oferece, em seis abas:
 | **3 · Query** | Editor SQL com grid paginado. `x` roda **EXPLAIN** (plano, sem executar). Escrita pede confirmação; destrutivo (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` sem `WHERE`) exige digitar `sim`. |
 | **4 · Locks** | Árvore de bloqueios: quem espera por qual sessão. |
 | **5 · Sessões** | `pg_stat_activity`: sessões de cliente com estado/espera/duração/query. **`c`** cancela a query (`pg_cancel_backend`), **`k`** encerra a conexão (`pg_terminate_backend`). |
-| **6 · Roles** | Roles do cluster (login, super, createdb/role, membros). **`n`** cria role/usuário (com senha, atributos), **`g`** faz grant a um database (CONNECT / ALL / owner / acesso total ao schema), **`D`** apaga role (confirmação por nome). |
+| **6 · Roles** | Roles do cluster (login, super, createdb/role, membros). **`n`** cria role/usuário (com senha, atributos), **`g`** faz grant a um database (CONNECT / ALL / owner / acesso total ao schema), **`D`** apaga role, **`F`** força a remoção reatribuindo a posse a um sucessor (sem apagar dados). |
 
 ```
 ┌ pgtui ──────────────────────────── postgres@192.168.1.242:5432 · admin db: postgres ┐
@@ -104,6 +104,7 @@ make run
 | `n` | criar role/usuário (nome, senha, login, createdb/role) |
 | `g` | grant a um database (CONNECT / ALL / owner / schema public) |
 | `D` | apagar role (pede o nome para confirmar) |
+| `F` | **forçar** drop: reatribui a posse dos objetos/databases a um role sucessor e revoga privilégios antes do `DROP ROLE` — **não apaga dados** |
 
 ### Guarda contra operações destrutivas
 

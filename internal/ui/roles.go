@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/9level/pg-tui/internal/config"
 	"github.com/9level/pg-tui/internal/db"
 )
 
@@ -15,9 +16,11 @@ const (
 	formNoneKind = iota
 	formCreateRole
 	formGrant
+	formForceDrop
 )
 
 type rolesView struct {
+	cfg *config.Config
 	mgr *db.Manager
 
 	tbl     table.Model
@@ -29,7 +32,8 @@ type rolesView struct {
 	alert    alertModal
 	formKind int
 
-	pendingDropRole string
+	pendingDropRole  string
+	pendingForceRole string
 
 	loading bool
 	err     error
@@ -38,8 +42,8 @@ type rolesView struct {
 	width, height int
 }
 
-func newRolesView(mgr *db.Manager) *rolesView {
-	return &rolesView{mgr: mgr, tbl: newTable(), confirm: newConfirmModal(), alert: newAlertModal()}
+func newRolesView(cfg *config.Config, mgr *db.Manager) *rolesView {
+	return &rolesView{cfg: cfg, mgr: mgr, tbl: newTable(), confirm: newConfirmModal(), alert: newAlertModal()}
 }
 
 func (v *rolesView) Title() string { return "Roles" }
@@ -160,6 +164,8 @@ func (v *rolesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return v.openGrantForm()
 	case "D":
 		return v.askDropRole()
+	case "F":
+		return v.openForceDropForm()
 	}
 	var cmd tea.Cmd
 	v.tbl, cmd = v.tbl.Update(msg)
@@ -207,6 +213,25 @@ func (v *rolesView) openGrantForm() tea.Cmd {
 	})
 }
 
+func (v *rolesView) openForceDropForm() tea.Cmd {
+	role, ok := v.selectedRole()
+	if !ok {
+		return nil
+	}
+	successor := "postgres"
+	if v.cfg != nil && v.cfg.User != "" {
+		successor = v.cfg.User
+	}
+	v.pendingForceRole = role.Name
+	v.formKind = formForceDrop
+	succ := textField("successor", "Reatribuir p/", successor)
+	succ.input.SetValue(successor)
+	return v.form.open("⚠ Forçar remoção de "+role.Name+" (reatribui posse, não apaga dados)", []formField{
+		succ,
+		textField("confirm", "Confirmar", "digite o nome do role"),
+	})
+}
+
 func (v *rolesView) askDropRole() tea.Cmd {
 	role, ok := v.selectedRole()
 	if !ok {
@@ -248,13 +273,34 @@ func (v *rolesView) submitForm() tea.Cmd {
 		v.form.close()
 		v.formKind = formNoneKind
 		return execStatements(v.mgr, targetDB, fmt.Sprintf("grant %s → %s", role.Name, database), stmts)
+
+	case formForceDrop:
+		successor := strings.TrimSpace(v.form.value("successor"))
+		confirm := strings.TrimSpace(v.form.value("confirm"))
+		if confirm != v.pendingForceRole {
+			v.status = stWarnV.Render("confirmação incorreta — digite o nome exato do role")
+			return nil
+		}
+		if successor == "" {
+			v.status = stWarnV.Render("informe o role sucessor da posse")
+			return nil
+		}
+		if successor == v.pendingForceRole {
+			v.status = stWarnV.Render("o sucessor não pode ser o próprio role")
+			return nil
+		}
+		doomed := v.pendingForceRole
+		v.form.close()
+		v.formKind = formNoneKind
+		v.status = stWarnV.Render("reatribuindo posse e removendo " + doomed + "…")
+		return forceDropRole(v.mgr, doomed, successor)
 	}
 	return nil
 }
 
 func (v *rolesView) FooterHints() string {
-	return hint("n", "criar") + "   " + hint("g", "grant") + "   " + hint("D", "dropar") + "   " +
-		hint("r", "atualizar") + "   " + hint("↑↓", "navegar")
+	return hint("n", "criar") + "  " + hint("g", "grant") + "  " + hint("D", "dropar") + "  " +
+		hint("F", "forçar drop") + "  " + hint("r", "atualizar") + "  " + hint("↑↓", "navegar")
 }
 
 func (v *rolesView) View() string {
