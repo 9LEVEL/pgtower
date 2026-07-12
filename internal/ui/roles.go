@@ -19,6 +19,22 @@ const (
 	formForceDrop
 )
 
+// confirm kinds distinguish which pending action the shared confirm modal is
+// asking about (they run different statements on "yes").
+const (
+	confirmNoneKind = iota
+	confirmDropRole
+	confirmResetPwd
+)
+
+// role actions offered by the "Enter → manage" menu (indexes into roleMenuItems).
+const menuResetPassword = 0
+
+var roleMenuItems = []string{"Reset password (generate random)"}
+
+// newPasswordLen is the length of a generated password (letters + digits).
+const newPasswordLen = 32
+
 type rolesView struct {
 	cfg *config.Config
 	mgr *db.Manager
@@ -30,10 +46,15 @@ type rolesView struct {
 	form     form
 	confirm  confirmModal
 	alert    alertModal
+	menu     actionMenu
 	formKind int
 
+	confirmKind      int
 	pendingDropRole  string
 	pendingForceRole string
+	pendingPwdRole   string
+	newPassword      string
+	pwdIterations    int
 
 	loading bool
 	err     error
@@ -49,7 +70,7 @@ func newRolesView(cfg *config.Config, mgr *db.Manager) *rolesView {
 func (v *rolesView) Title() string { return "Roles" }
 
 func (v *rolesView) CapturingInput() bool {
-	return v.form.active || v.confirm.active || v.alert.active
+	return v.form.active || v.confirm.active || v.alert.active || v.menu.active
 }
 
 func (v *rolesView) Init() tea.Cmd {
@@ -116,6 +137,10 @@ func (v *rolesView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		v.status = stGood.Render("✓ " + msg.action + " ok")
+		if strings.HasPrefix(msg.action, "reset password ") && v.newPassword != "" {
+			v.showNewPassword(v.pendingPwdRole, v.newPassword)
+			v.newPassword = ""
+		}
 		return loadRoles(v.mgr)
 
 	case tea.KeyMsg:
@@ -135,12 +160,19 @@ func (v *rolesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		v.alert.update(msg)
 		return nil
 	}
+	if v.menu.active {
+		if v.menu.update(msg) == menuSelect {
+			return v.runMenuAction(v.menu.cursor)
+		}
+		return nil
+	}
 	if v.confirm.active {
 		switch v.confirm.update(msg) {
 		case confirmYes:
-			return execStatements(v.mgr, "", "drop role "+v.pendingDropRole, []string{db.BuildDropRole(v.pendingDropRole)})
+			return v.onConfirmYes()
 		case confirmNo:
 			v.status = stStatus.Render("cancelled")
+			v.confirmKind = confirmNoneKind
 		}
 		return nil
 	}
@@ -156,6 +188,8 @@ func (v *rolesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	}
 
 	switch msg.String() {
+	case "enter":
+		return v.openRoleMenu()
 	case "r":
 		return v.Init()
 	case "n":
@@ -238,9 +272,85 @@ func (v *rolesView) askDropRole() tea.Cmd {
 		return nil
 	}
 	v.pendingDropRole = role.Name
+	v.confirmKind = confirmDropRole
 	body := fmt.Sprintf("This will remove role %s from the cluster.\nType the name to confirm:",
 		stBadV.Render(role.Name))
 	return v.confirm.askCritical("⚠  DROP ROLE", body, role.Name)
+}
+
+// openRoleMenu opens the per-role actions menu for the highlighted role.
+func (v *rolesView) openRoleMenu() tea.Cmd {
+	role, ok := v.selectedRole()
+	if !ok {
+		v.status = stWarnV.Render("select a role first")
+		return nil
+	}
+	v.menu.open("Manage role · "+role.Name, roleMenuItems)
+	return nil
+}
+
+// runMenuAction dispatches the chosen action from the role menu.
+func (v *rolesView) runMenuAction(idx int) tea.Cmd {
+	switch idx {
+	case menuResetPassword:
+		return v.askResetPassword()
+	}
+	return nil
+}
+
+// askResetPassword confirms before generating and applying a new password.
+func (v *rolesView) askResetPassword() tea.Cmd {
+	role, ok := v.selectedRole()
+	if !ok {
+		v.menu.close()
+		return nil
+	}
+	v.menu.close()
+	v.pendingPwdRole = role.Name
+	v.confirmKind = confirmResetPwd
+	body := fmt.Sprintf("Generate a new random %d-character password for %s?\n"+
+		"The current password is replaced immediately; the new one is shown once.",
+		newPasswordLen, stValue.Render(role.Name))
+	return v.confirm.ask("Reset password", body)
+}
+
+// onConfirmYes runs the statement for whichever confirmation was pending.
+func (v *rolesView) onConfirmYes() tea.Cmd {
+	kind := v.confirmKind
+	v.confirmKind = confirmNoneKind
+	switch kind {
+	case confirmResetPwd:
+		role := v.pendingPwdRole
+		pwd, err := db.GeneratePassword(newPasswordLen)
+		if err != nil {
+			v.status = stBadV.Render("could not generate password: " + err.Error())
+			return nil
+		}
+		// Hash client-side and send only the SCRAM-SHA-256 verifier — the
+		// plaintext never reaches the server (nor its logs). The user still
+		// gets the plaintext on screen to log in with.
+		secret, rounds, err := db.SCRAMSHA256Secret(pwd, v.cfg.SCRAMIterations)
+		if err != nil {
+			v.status = stBadV.Render("could not hash password: " + err.Error())
+			return nil
+		}
+		v.newPassword = pwd
+		v.pwdIterations = rounds
+		return execStatements(v.mgr, "", "reset password "+role, []string{db.BuildAlterRolePassword(role, secret)})
+	default: // confirmDropRole
+		return execStatements(v.mgr, "", "drop role "+v.pendingDropRole, []string{db.BuildDropRole(v.pendingDropRole)})
+	}
+}
+
+// showNewPassword displays the freshly generated password in a modal so the
+// user can copy it. It is not stored anywhere and cannot be shown again.
+func (v *rolesView) showNewPassword(role, pwd string) {
+	body := stLabel.Render("New password for ") + stValue.Render(role) + "\n\n" +
+		stGood.Render(pwd) + "\n\n" +
+		stKeyHint.Render("Copy it now — it is not stored and cannot be shown again.\n"+
+			"Only letters and digits: safe to paste in any terminal or connection string.\n"+
+			fmt.Sprintf("Sent as a SCRAM-SHA-256 hash (%d rounds) — the plaintext never left this session.", v.pwdIterations))
+	v.alert.show(v.width, v.height, "Password reset", body, false)
 }
 
 func (v *rolesView) submitForm() tea.Cmd {
@@ -254,7 +364,15 @@ func (v *rolesView) submitForm() tea.Cmd {
 		_, login := v.form.selected("login")
 		_, createdb := v.form.selected("createdb")
 		_, createrole := v.form.selected("createrole")
-		sql := db.BuildCreateRole(name, v.form.value("password"), login == "yes", createdb == "yes", createrole == "yes")
+		// Hash the password client-side (SCRAM-SHA-256) when possible so the
+		// plaintext never reaches the server; a non-ASCII password falls back
+		// to plaintext so the server can SASLprep and hash it correctly.
+		secret, _, err := db.PasswordSecret(v.form.value("password"), v.cfg.SCRAMIterations)
+		if err != nil {
+			v.status = stBadV.Render("could not hash password: " + err.Error())
+			return nil
+		}
+		sql := db.BuildCreateRole(name, secret, login == "yes", createdb == "yes", createrole == "yes")
 		v.form.close()
 		v.formKind = formNoneKind
 		return execStatements(v.mgr, "", "create role "+name, []string{sql})
@@ -299,13 +417,16 @@ func (v *rolesView) submitForm() tea.Cmd {
 }
 
 func (v *rolesView) FooterHints() string {
-	return hint("n", "create") + "  " + hint("g", "grant") + "  " + hint("D", "drop") + "  " +
-		hint("F", "force-drop") + "  " + hint("r", "refresh") + "  " + hint("↑↓", "navigate")
+	return hint("enter", "manage") + "  " + hint("n", "create") + "  " + hint("g", "grant") + "  " +
+		hint("D", "drop") + "  " + hint("F", "force-drop") + "  " + hint("r", "refresh")
 }
 
 func (v *rolesView) View() string {
 	if v.alert.active {
 		return v.alert.view(v.width, v.height)
+	}
+	if v.menu.active {
+		return v.menu.view(v.width, v.height)
 	}
 	if v.form.active {
 		return v.form.view(v.width, v.height)

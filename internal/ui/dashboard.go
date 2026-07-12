@@ -126,6 +126,7 @@ func (v *dashboardView) View() string {
 	}
 	serverCard := v.card("Server", []string{
 		stValue.Render(d.Version),
+		stLabel.Render("client: ") + stValue.Render("pgtui "+appVersion(v.cfg.Version)),
 		stLabel.Render("longest active query: ") + longStyle.Render(longest),
 	})
 

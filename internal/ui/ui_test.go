@@ -266,6 +266,58 @@ func TestSessionsAndRolesRender(t *testing.T) {
 	assertContains(t, m.View(), "Cluster roles")
 }
 
+// TestRolesResetPasswordFlow drives Enter → menu → reset password → confirm and
+// checks the generated password is shown. It needs no DB: the async ALTER ROLE
+// command is not executed; instead its success is simulated with an execMsg.
+func TestRolesResetPasswordFlow(t *testing.T) {
+	v := newRolesView(&config.Config{}, nil)
+	v.SetSize(120, 40)
+	v.Update(rolesMsg{rows: []db.Role{
+		{Name: "postgres", Super: true, CanLogin: true},
+		{Name: "app_user", CanLogin: true},
+	}})
+
+	// move the cursor to app_user, then Enter opens the manage menu.
+	v.Update(key("down"))
+	v.Update(key("enter"))
+	assertContains(t, v.View(), "Manage role", "app_user", "Reset password")
+
+	// Enter selects "Reset password" -> confirmation dialog.
+	v.Update(key("enter"))
+	assertContains(t, v.View(), "Reset password", "32-character", "app_user")
+
+	// 'y' confirms: a password is generated (the async ALTER cmd is ignored here).
+	v.Update(key("y"))
+	if len(v.newPassword) != newPasswordLen {
+		t.Fatalf("generated password length = %d, want %d", len(v.newPassword), newPasswordLen)
+	}
+	pwd := v.newPassword
+
+	// Simulate the successful ALTER ROLE result -> the password modal appears,
+	// showing the password and the SCRAM hashing detail (default 15000 rounds).
+	v.Update(execMsg{action: "reset password app_user"})
+	assertContains(t, v.View(), "Password reset", pwd, "cannot be shown again",
+		"SCRAM-SHA-256", "15000 rounds")
+
+	// esc closes the modal, back to the roles table.
+	v.Update(key("esc"))
+	assertContains(t, v.View(), "Cluster roles")
+}
+
+// TestRolesMenuCancel checks that esc dismisses the manage menu without action.
+func TestRolesMenuCancel(t *testing.T) {
+	v := newRolesView(&config.Config{}, nil)
+	v.SetSize(120, 40)
+	v.Update(rolesMsg{rows: []db.Role{{Name: "app_user", CanLogin: true}}})
+	v.Update(key("enter"))
+	assertContains(t, v.View(), "Manage role")
+	v.Update(key("esc"))
+	if v.menu.active {
+		t.Error("menu should be closed after esc")
+	}
+	assertContains(t, v.View(), "Cluster roles")
+}
+
 // TestDashboardTickStartsOnce ensures that reopening the Dashboard tab does not
 // create multiple auto-refresh loops (no DB needed — Init only builds commands).
 func TestDashboardTickStartsOnce(t *testing.T) {

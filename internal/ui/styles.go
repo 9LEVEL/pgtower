@@ -42,8 +42,11 @@ var (
 		Border(lipgloss.DoubleBorder()).
 		Padding(1, 2)
 
-	stVersion = lipgloss.NewStyle().Foreground(colMuted)
-	stBrand   = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+	stBrand = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+
+	// stHeaderVer renders the running version as a readable badge so it is
+	// always legible in the header (and reused in the About overlay).
+	stHeaderVer = lipgloss.NewStyle().Foreground(colOnDark).Background(colMuted).Bold(true).Padding(0, 1)
 )
 
 // brand is the lightweight brand signature shown in the header/help.

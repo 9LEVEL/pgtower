@@ -196,6 +196,15 @@ func BuildDropRole(name string) string {
 	return "DROP ROLE " + QuoteIdent(name)
 }
 
+// BuildAlterRolePassword builds an ALTER ROLE ... PASSWORD statement to reset a
+// role's password. The secret is quoted as a SQL string literal. It may be a
+// plaintext password or a pre-computed verifier (e.g. from SCRAMSHA256Secret):
+// when it is a valid "SCRAM-SHA-256$..." string PostgreSQL stores it verbatim,
+// so the plaintext never reaches the server.
+func BuildAlterRolePassword(name, secret string) string {
+	return "ALTER ROLE " + QuoteIdent(name) + " PASSWORD " + QuoteLiteral(secret)
+}
+
 // BuildCreateDatabase builds a CREATE DATABASE (optional owner).
 func BuildCreateDatabase(name, owner string) string {
 	s := "CREATE DATABASE " + QuoteIdent(name)

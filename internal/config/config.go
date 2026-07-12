@@ -29,6 +29,10 @@ type Config struct {
 	// RefreshSeconds controls the dashboard auto-refresh.
 	RefreshSeconds int
 
+	// SCRAMIterations is the PBKDF2 round count for password resets. 0 means
+	// "use the built-in default"; the db layer clamps it to a safe range.
+	SCRAMIterations int
+
 	// Version is the binary version (injected in main via -ldflags), shown
 	// in the header. Filled in by whoever builds the Config.
 	Version string
@@ -69,12 +73,13 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		URL:            raw,
-		AdminDB:        admin,
-		Host:           u.Hostname(),
-		Port:           port,
-		User:           user,
-		RefreshSeconds: envInt("PGTUI_REFRESH_SECONDS", 5),
+		URL:             raw,
+		AdminDB:         admin,
+		Host:            u.Hostname(),
+		Port:            port,
+		User:            user,
+		RefreshSeconds:  envInt("PGTUI_REFRESH_SECONDS", 5),
+		SCRAMIterations: envInt("PGTUI_SCRAM_ITERATIONS", 0),
 	}, nil
 }
 

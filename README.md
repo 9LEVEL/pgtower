@@ -47,7 +47,7 @@ for the management actions.
 | **3 · Query** | SQL editor with a paged result grid. `x` runs **EXPLAIN** (plan only). Writes require confirmation; destructive statements (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` without `WHERE`) require typing `yes`. |
 | **4 · Locks** | Blocking tree: which session waits on which. |
 | **5 · Sessions** | `pg_stat_activity` with state/wait/duration/query. `c` cancels the query, `k` terminates the connection. |
-| **6 · Roles** | Roles with login/super/createdb attributes. `n` create, `g` grant to a database, `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss). |
+| **6 · Roles** | Roles with login/super/createdb attributes. `enter` **manage** the selected role (reset password — generates a random 32-char one, shown once), `n` create, `g` grant to a database, `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss). |
 
 ## Install
 
@@ -76,6 +76,7 @@ $EDITOR .env
 ```dotenv
 DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/postgres?sslmode=disable
 PGTUI_REFRESH_SECONDS=5
+# PGTUI_SCRAM_ITERATIONS=15000   # PBKDF2 rounds for password-reset hashing
 ```
 
 - The database in the URL is the **admin db** — where cluster-level queries run
@@ -122,6 +123,7 @@ Press `?` in the app for the full, scrollable list.
 | `c` | cancel the session's query (`pg_cancel_backend`) |
 | `k` | terminate the connection (`pg_terminate_backend`) |
 | **Roles** | |
+| `enter` | manage role: reset password (generates a random 32-char password, shown once) |
 | `n` | create role/user |
 | `g` | grant to a database (CONNECT / ALL / owner / public schema) |
 | `D` | drop role (asks for the name) |
@@ -139,6 +141,14 @@ pgtui is built so you can't lose data by accident:
   **type the object's exact name**.
 - **Force-drop** never deletes data: it `REASSIGN OWNED` / `ALTER DATABASE
   OWNER` to a successor role and revokes privileges before `DROP ROLE`.
+- **Passwords are hashed client-side.** Both **create role** and **reset
+  password** compute the **SCRAM-SHA-256** verifier locally and send only that
+  in `CREATE`/`ALTER ROLE`, so the plaintext never reaches the server or its
+  logs. Reset generates a random 32-char password (letters and digits only,
+  safe in any terminal) and shows it once, on screen. A non-ASCII typed password
+  is sent as-is so the server can SASLprep it correctly. The PBKDF2 round count
+  defaults to 15000 (stronger than Postgres' 4096) and is configurable via
+  `PGTUI_SCRAM_ITERATIONS`.
 - Admin statements run over the pgx simple protocol (required for
   `CREATE`/`DROP DATABASE`), with quoted identifiers.
 - There is no code path that drops a database on its own.

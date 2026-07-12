@@ -76,8 +76,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, t := range m.tabs {
 			t.SetSize(msg.Width, bodyH)
 		}
-		m.helpVP.Width = clampInt(msg.Width-8, 30, 84)
-		m.helpVP.Height = clampInt(msg.Height-8, 4, 40)
+		m.sizeHelpViewport()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -197,11 +196,16 @@ func (m *Model) bodyHeight() int {
 	return h
 }
 
-func (m *Model) renderHeader() string {
-	left := stTitle.Render(" pgtui ")
-	if m.cfg.Version != "" {
-		left += stVersion.Render(" " + m.cfg.Version)
+// appVersion returns the running version for display, never empty.
+func appVersion(v string) string {
+	if v == "" {
+		return "dev"
 	}
+	return v
+}
+
+func (m *Model) renderHeader() string {
+	left := stTitle.Render(" pgtui ") + stHeaderVer.Render(appVersion(m.cfg.Version))
 
 	conn := stStatus.Render(fmt.Sprintf(" %s@%s:%s • admin db: %s ",
 		m.cfg.User, m.cfg.Host, m.cfg.Port, m.mgr.AdminDB()))

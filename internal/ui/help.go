@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -9,10 +10,16 @@ import (
 // openHelp populates the help viewport and opens it.
 func (m *Model) openHelp() {
 	m.showHelp = true
-	m.helpVP.Width = clampInt(m.width-8, 30, 84)
-	m.helpVP.Height = clampInt(m.height-8, 4, 40)
+	m.sizeHelpViewport()
 	m.helpVP.SetContent(helpBody())
 	m.helpVP.GotoTop()
+}
+
+// sizeHelpViewport sizes the shortcuts viewport, leaving vertical room for the
+// About block, title and footer so the modal never grows past the screen.
+func (m *Model) sizeHelpViewport() {
+	m.helpVP.Width = clampInt(m.width-8, 30, 84)
+	m.helpVP.Height = clampInt(m.height-16, 4, 40)
 }
 
 // helpBody builds the (scrollable) help body.
@@ -59,6 +66,7 @@ func helpBody() string {
 		{"r", "refresh"},
 		{"", ""},
 		{"Roles", ""},
+		{"enter", "manage role: reset password (generates a random one)"},
 		{"n", "create role/user"},
 		{"g", "grant to a database"},
 		{"D", "drop role (type the name to confirm)"},
@@ -84,15 +92,24 @@ func helpBody() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// overlayHelp draws the help: fixed header (version + brand) and footer, with
-// the shortcuts in a scrollable viewport to fit any terminal height.
+// overlayHelp draws the About + shortcuts overlay: a fixed identity block
+// (name, version, brand, description, connection) above the scrollable list of
+// shortcuts. All lines are wrapped to the viewport width so nothing is cut.
 func (m *Model) overlayHelp(bg string) string {
-	ver := m.cfg.Version
-	if ver == "" {
-		ver = "dev"
-	}
-	header := stBrand.Render("pgtui") + stVersion.Render(" "+ver) +
-		stKeyHint.Render("  ·  ") + stBrand.Render(brand)
+	w := m.helpVP.Width
+	wrap := lipgloss.NewStyle().Width(w)
+
+	// --- About / identity block ---
+	ident := stTitle.Render(" pgtui ") + stHeaderVer.Render(appVersion(m.cfg.Version)) +
+		stKeyHint.Render("   ") + stBrand.Render(brand)
+	desc := wrap.Foreground(colMuted).Render(
+		"PostgreSQL administration TUI — dashboard, databases & tables, query runner, locks, sessions and roles.")
+	conn := wrap.Render(
+		stLabel.Render("connection  ") + stValue.Render(fmt.Sprintf("%s@%s:%s", m.cfg.User, m.cfg.Host, m.cfg.Port)) +
+			stLabel.Render("    admin db  ") + stValue.Render(m.mgr.AdminDB()))
+	rule := stKeyHint.Render(strings.Repeat("─", w))
+	about := ident + "\n\n" + desc + "\n" + conn
+
 	title := lipgloss.NewStyle().Bold(true).Foreground(colOnDark).Background(colAccent).
 		Padding(0, 1).Render("Keyboard shortcuts")
 
@@ -101,7 +118,7 @@ func (m *Model) overlayHelp(bg string) string {
 		footer += stKeyHint.Render(" · ↑↓ scroll")
 	}
 
-	content := header + "\n" + title + "\n\n" + m.helpVP.View() + "\n\n" + footer
+	content := about + "\n" + rule + "\n\n" + title + "\n\n" + m.helpVP.View() + "\n\n" + footer
 	box := stModal.BorderForeground(colAccent).Render(content)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
