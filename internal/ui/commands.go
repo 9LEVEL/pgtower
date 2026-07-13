@@ -82,11 +82,19 @@ type tuningMsg struct {
 	err  error
 }
 
-// hbaMsg carries the parsed pg_hba rules and the file path.
+// hbaMsg carries the parsed pg_hba rules, the file path/content and whether the
+// connection can rewrite it.
 type hbaMsg struct {
-	file  string
-	rules []db.HBARule
-	err   error
+	file     string
+	content  string
+	writable bool
+	rules    []db.HBARule
+	err      error
+}
+
+// hbaApplyMsg is the result of a guarded pg_hba rewrite.
+type hbaApplyMsg struct {
+	err error
 }
 
 // allSettingsMsg carries the full pg_settings list for the ALTER SYSTEM editor.
@@ -292,7 +300,8 @@ func applySetting(mgr *db.Manager, name, value string, reset, restart bool) tea.
 	}
 }
 
-// loadHBA reads the pg_hba.conf path and its parsed rules (superuser only).
+// loadHBA reads the pg_hba.conf path, content, parsed rules and writability
+// (superuser only for the rules/content).
 func loadHBA(mgr *db.Manager) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), clusterTimeout)
@@ -302,8 +311,20 @@ func loadHBA(mgr *db.Manager) tea.Cmd {
 			return hbaMsg{err: err}
 		}
 		file, _ := db.HBAFilePath(ctx, p)
+		writable := db.HBAWritable(ctx, p)
+		content, _ := db.HBAFileContent(ctx, p)
 		rules, err := db.ListHBARules(ctx, p)
-		return hbaMsg{file: file, rules: rules, err: err}
+		return hbaMsg{file: file, content: content, writable: writable, rules: rules, err: err}
+	}
+}
+
+// applyHBA rewrites pg_hba.conf with the given content through the guarded
+// path (backup + validate + reload + verify + auto-rollback).
+func applyHBA(mgr *db.Manager, dsn, content string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+		defer cancel()
+		return hbaApplyMsg{err: db.ApplyHBAContent(ctx, mgr, dsn, content)}
 	}
 }
 

@@ -79,6 +79,7 @@ func helpBody() string {
 		{"a / s / h", "switch section: advisor / settings / pg_hba"},
 		{"enter / x", "settings: edit (ALTER SYSTEM) / reset a GUC"},
 		{"/", "settings: filter by name"},
+		{"n / e / d", "pg_hba: add / edit / delete a rule (superuser)"},
 		{"r", "re-read pg_settings / pg_hba"},
 	}
 

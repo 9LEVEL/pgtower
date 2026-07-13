@@ -49,10 +49,18 @@ type tuningView struct {
 
 	// pg_hba
 	hbaFile     string
+	hbaContent  string
+	hbaWritable bool
 	hbaRules    []db.HBARule
 	hbaErr      error
 	hbaErrCount int
 	hbaTbl      table.Model
+	hbaForm     form
+	hbaConfirm  confirmModal
+	hbaAlert    alertModal
+	hbaPending  string // new file content awaiting confirmation
+	hbaEditLine int    // line being edited; 0 = append
+	hbaStatus   string
 
 	width, height int
 }
@@ -62,12 +70,16 @@ func newTuningView(cfg *config.Config, mgr *db.Manager) *tuningView {
 	fi.Placeholder = "filter by name"
 	fi.CharLimit = 60
 	fi.Width = 30
-	return &tuningView{cfg: cfg, mgr: mgr, hbaTbl: newTable(), setTbl: newTable(), setFilter: fi}
+	return &tuningView{cfg: cfg, mgr: mgr, hbaTbl: newTable(), setTbl: newTable(),
+		setFilter: fi, hbaConfirm: newConfirmModal(), hbaAlert: newAlertModal()}
 }
 
 func (v *tuningView) Title() string { return "Tuning" }
 
-func (v *tuningView) CapturingInput() bool { return v.setForm.active || v.setFiltering }
+func (v *tuningView) CapturingInput() bool {
+	return v.setForm.active || v.setFiltering ||
+		v.hbaForm.active || v.hbaConfirm.active || v.hbaAlert.active
+}
 
 func (v *tuningView) SetSize(w, h int) {
 	v.width, v.height = w, h
@@ -102,6 +114,9 @@ func (v *tuningView) FooterHints() string {
 	case secSettings:
 		return hint("enter", "edit") + "  " + hint("x", "reset") + "  " + hint("/", "filter") + "  " +
 			sections + "  " + hint("r", "refresh")
+	case secHBA:
+		return hint("n", "add") + "  " + hint("e", "edit") + "  " + hint("d", "delete") + "  " +
+			sections + "  " + hint("r", "refresh")
 	default:
 		return sections + "  " + hint("r", "refresh")
 	}
@@ -122,11 +137,19 @@ func (v *tuningView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case hbaMsg:
 		v.hbaErr, v.hbaFile = msg.err, msg.file
+		v.hbaContent, v.hbaWritable = msg.content, msg.writable
 		if msg.err == nil {
 			v.hbaRules = msg.rules
 			v.rebuildHBATable()
 		}
 		return nil
+	case hbaApplyMsg:
+		if msg.err != nil {
+			v.hbaAlert.show(v.width, v.height, "pg_hba change failed", pgErrorText(msg.err), true)
+			return nil
+		}
+		v.hbaStatus = stGood.Render("✓ pg_hba updated & reloaded")
+		return loadHBA(v.mgr)
 	case allSettingsMsg:
 		v.setErr = msg.err
 		if msg.err == nil {
@@ -151,7 +174,11 @@ func (v *tuningView) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (v *tuningView) handleKey(msg tea.KeyMsg) tea.Cmd {
-	// Edit form has priority.
+	// Modals first (highest priority).
+	if v.hbaAlert.active {
+		v.hbaAlert.update(msg)
+		return nil
+	}
 	if v.setForm.active {
 		res, cmd := v.setForm.update(msg)
 		switch res {
@@ -161,6 +188,25 @@ func (v *tuningView) handleKey(msg tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		return cmd
+	}
+	if v.hbaForm.active {
+		res, cmd := v.hbaForm.update(msg)
+		switch res {
+		case formSubmit:
+			return v.submitHBAForm()
+		case formCancel:
+			return nil
+		}
+		return cmd
+	}
+	if v.hbaConfirm.active {
+		switch v.hbaConfirm.update(msg) {
+		case confirmYes:
+			return applyHBA(v.mgr, v.cfg.URL, v.hbaPending)
+		case confirmNo:
+			v.hbaStatus = stStatus.Render("cancelled")
+		}
+		return nil
 	}
 	// Filter capture.
 	if v.setFiltering {
@@ -193,6 +239,14 @@ func (v *tuningView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	switch v.section {
 	case secHBA:
+		switch msg.String() {
+		case "n":
+			return v.openHBAForm(0)
+		case "e", "enter":
+			return v.openHBAEditForm()
+		case "d", "D":
+			return v.askHBADelete()
+		}
 		v.hbaTbl, cmd = v.hbaTbl.Update(msg)
 	case secSettings:
 		switch msg.String() {
@@ -302,6 +356,107 @@ func settingConstraint(s db.Setting) string {
 
 // --- pg_hba section ---
 
+func (v *tuningView) selectedHBARule() (db.HBARule, bool) {
+	i := v.hbaTbl.Cursor()
+	if i < 0 || i >= len(v.hbaRules) {
+		return db.HBARule{}, false
+	}
+	return v.hbaRules[i], true
+}
+
+// openHBAForm opens the add/edit rule form. editLine 0 = append a new rule.
+func (v *tuningView) openHBAForm(editLine int) tea.Cmd {
+	if !v.hbaWritable {
+		v.hbaStatus = stWarnV.Render("pg_hba is read-only here — a superuser connection is required to edit")
+		return nil
+	}
+	v.hbaEditLine = editLine
+	title := "Add pg_hba rule"
+	fields := []formField{
+		textField("type", "Type", "host / local / hostssl"),
+		textField("database", "Database", "all"),
+		textField("user", "User", "all"),
+		textField("address", "Address", "0.0.0.0/0 (blank for local)"),
+		textField("method", "Method", "scram-sha-256 / trust / reject"),
+	}
+	return v.hbaForm.open(title, fields)
+}
+
+func (v *tuningView) openHBAEditForm() tea.Cmd {
+	if !v.hbaWritable {
+		v.hbaStatus = stWarnV.Render("pg_hba is read-only here — a superuser connection is required to edit")
+		return nil
+	}
+	r, ok := v.selectedHBARule()
+	if !ok {
+		return nil
+	}
+	v.hbaEditLine = r.LineNumber
+	pre := func(key, label, val string) formField {
+		f := textField(key, label, "")
+		f.input.SetValue(val)
+		return f
+	}
+	return v.hbaForm.open(fmt.Sprintf("Edit pg_hba line %d", r.LineNumber), []formField{
+		pre("type", "Type", r.Type),
+		pre("database", "Database", r.Database),
+		pre("user", "User", r.UserName),
+		pre("address", "Address", r.Address),
+		pre("method", "Method", r.AuthMethod),
+	})
+}
+
+func (v *tuningView) submitHBAForm() tea.Cmd {
+	in := db.HBARuleInput{
+		Type:     strings.TrimSpace(v.hbaForm.value("type")),
+		Database: strings.TrimSpace(v.hbaForm.value("database")),
+		User:     strings.TrimSpace(v.hbaForm.value("user")),
+		Address:  strings.TrimSpace(v.hbaForm.value("address")),
+		Method:   strings.TrimSpace(v.hbaForm.value("method")),
+	}
+	if in.Type == "" || in.Database == "" || in.User == "" || in.Method == "" {
+		v.hbaStatus = stWarnV.Render("type, database, user and method are required")
+		return nil
+	}
+	line := db.BuildHBALine(in)
+	var newContent string
+	var err error
+	if v.hbaEditLine == 0 {
+		newContent = db.HBAAppendLine(v.hbaContent, line)
+	} else {
+		newContent, err = db.HBAReplaceLine(v.hbaContent, v.hbaEditLine, line)
+	}
+	if err != nil {
+		v.hbaStatus = stErr.Render(err.Error())
+		return nil
+	}
+	v.hbaForm.close()
+	v.hbaPending = newContent
+	body := "Apply and reload pg_hba with this rule?\n\n  " + stValue.Render(line) +
+		"\n\nA backup is kept; the change is auto-rolled-back if admin login breaks."
+	return v.hbaConfirm.ask("⚠  Write pg_hba.conf", body)
+}
+
+func (v *tuningView) askHBADelete() tea.Cmd {
+	if !v.hbaWritable {
+		v.hbaStatus = stWarnV.Render("pg_hba is read-only here — a superuser connection is required to edit")
+		return nil
+	}
+	r, ok := v.selectedHBARule()
+	if !ok {
+		return nil
+	}
+	newContent, err := db.HBADeleteLine(v.hbaContent, r.LineNumber)
+	if err != nil {
+		v.hbaStatus = stErr.Render(err.Error())
+		return nil
+	}
+	v.hbaPending = newContent
+	body := fmt.Sprintf("Delete pg_hba line %d and reload?\n\n  %s\n\nAuto-rolled-back if admin login breaks.",
+		r.LineNumber, stBadV.Render(strings.TrimSpace(fmt.Sprintf("%s %s %s %s %s", r.Type, r.Database, r.UserName, r.Address, r.AuthMethod))))
+	return v.hbaConfirm.ask("⚠  Delete pg_hba rule", body)
+}
+
 func (v *tuningView) rebuildHBATable() {
 	v.hbaErrCount = 0
 	rows := make([]table.Row, 0, len(v.hbaRules))
@@ -328,8 +483,17 @@ func (v *tuningView) rebuildHBATable() {
 // --- rendering ---
 
 func (v *tuningView) View() string {
+	if v.hbaAlert.active {
+		return v.hbaAlert.view(v.width, v.height)
+	}
 	if v.setForm.active {
 		return v.setForm.view(v.width, v.height)
+	}
+	if v.hbaForm.active {
+		return v.hbaForm.view(v.width, v.height)
+	}
+	if v.hbaConfirm.active {
+		return v.hbaConfirm.view(v.width, v.height)
 	}
 	selector := v.sectionSelector()
 	switch v.section {
@@ -422,8 +586,14 @@ func (v *tuningView) hbaView() string {
 		return head + "\n\n" + stErr.Render("Cannot read pg_hba_file_rules: "+v.hbaErr.Error()) +
 			"\n" + stKeyHint.Render("(the view requires a superuser connection)")
 	}
+	if !v.hbaWritable {
+		head += "   " + stWarnV.Render("read-only (superuser required to edit)")
+	}
 	if v.hbaErrCount > 0 {
 		head += "   " + stBadV.Render(fmt.Sprintf("⚠ %d line(s) failed to parse", v.hbaErrCount))
+	}
+	if v.hbaStatus != "" {
+		head += "   " + v.hbaStatus
 	}
 	return head + "\n" + v.hbaTbl.View()
 }

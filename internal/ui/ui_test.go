@@ -423,6 +423,47 @@ func TestTuningHBASection(t *testing.T) {
 		"/etc/postgresql/pg_hba.conf", "scram-sha-256", "1 line(s) failed to parse")
 }
 
+// TestTuningHBAEdit drives adding a pg_hba rule: n -> fill form -> submit ->
+// confirmation shows the built line. Also checks the read-only guardrail.
+func TestTuningHBAEdit(t *testing.T) {
+	tab := tea.KeyMsg{Type: tea.KeyTab}
+	v := newTuningView(&config.Config{URL: "postgres://x"}, nil)
+	v.SetSize(120, 40)
+	v.Update(hbaMsg{
+		file: "/x/pg_hba.conf", content: "host all all all trust\n", writable: true,
+		rules: []db.HBARule{{LineNumber: 1, Type: "host", Database: "all", UserName: "all", Address: "all", AuthMethod: "trust"}},
+	})
+	v.Update(key("h")) // pg_hba section
+	v.Update(key("n")) // add rule
+	assertContains(t, v.View(), "Add pg_hba rule", "Type")
+
+	v.Update(key("host"))
+	v.Update(tab)
+	v.Update(key("all"))
+	v.Update(tab)
+	v.Update(key("all"))
+	v.Update(tab)
+	v.Update(key("10.0.0.0/8"))
+	v.Update(tab)
+	v.Update(key("scram-sha-256"))
+	v.Update(key("enter")) // submit -> confirmation
+
+	assertContains(t, v.View(), "Write pg_hba.conf", "host all all 10.0.0.0/8 scram-sha-256")
+
+	v.Update(key("y")) // confirm -> applyHBA cmd (not executed with nil mgr)
+	if v.hbaConfirm.active {
+		t.Error("confirm should close after y")
+	}
+
+	// read-only guardrail: no superuser -> editing is refused.
+	v2 := newTuningView(&config.Config{}, nil)
+	v2.SetSize(120, 40)
+	v2.Update(hbaMsg{writable: false, rules: []db.HBARule{{LineNumber: 1, Type: "host", AuthMethod: "trust"}}})
+	v2.Update(key("h"))
+	v2.Update(key("n"))
+	assertContains(t, v2.View(), "read-only")
+}
+
 // TestDashboardCardsUniform proves every dashboard card renders at the same
 // height (padded, never clipped) even with very different content lengths.
 func TestDashboardCardsUniform(t *testing.T) {

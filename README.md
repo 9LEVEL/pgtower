@@ -48,7 +48,7 @@ for the management actions.
 | **4 · Locks** | Blocking tree: which session waits on which. |
 | **5 · Sessions** | `pg_stat_activity` with state/wait/duration/query. `c` cancels the query, `k` terminates the connection. |
 | **6 · Roles** | Roles with login/super/createdb attributes and their connection limit (`CONN`, ∞ = unlimited). `enter` **manage** the selected role (reset password — generates a random 32-char one, shown once; or set the connection limit), `n` create, `g` grant to a database, `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss). |
-| **7 · Tuning** | Config sections (switch with `a` / `s` / `h`): a read-only **configuration advisor** (`shared_buffers`, `effective_cache_size`, `work_mem`, `maintenance_work_mem`, `max_connections` — current vs recommended with a verdict; concrete targets need `PGTUI_HOST_RAM_MB` / `PGTUI_HOST_CPUS`); an **ALTER SYSTEM editor** (`enter` edit / `x` reset any GUC — validated against type & bounds, applied with `pg_reload_conf`, `/` filters, restart-required settings are flagged); and a **pg_hba viewer** (`pg_hba_file_rules`, flagging lines that fail to parse). `r` refresh. |
+| **7 · Tuning** | Config sections (switch with `a` / `s` / `h`): a read-only **configuration advisor** (`shared_buffers`, `effective_cache_size`, `work_mem`, `maintenance_work_mem`, `max_connections` — current vs recommended with a verdict; concrete targets need `PGTUI_HOST_RAM_MB` / `PGTUI_HOST_CPUS`); an **ALTER SYSTEM editor** (`enter` edit / `x` reset any GUC — validated against type & bounds, applied with `pg_reload_conf`, `/` filters, restart-required settings are flagged); and a **pg_hba editor** (`pg_hba_file_rules` with parse-error flags; `n`/`e`/`d` add/edit/delete a rule — superuser only, each write is backed up, validated, reloaded and **auto-rolled-back if admin login breaks**). `r` refresh. |
 
 ## Install
 
@@ -152,6 +152,11 @@ pgtui is built so you can't lose data by accident:
   is sent as-is so the server can SASLprep it correctly. The PBKDF2 round count
   defaults to 15000 (stronger than Postgres' 4096) and is configurable via
   `PGTUI_SCRAM_ITERATIONS`.
+- **Editing `pg_hba.conf`** (Tuning tab) never leaves you locked out: pgtui
+  backs up the file, writes the change, checks `pg_hba_file_rules` for parse
+  errors, reloads, then opens a **fresh admin connection** to confirm login
+  still works — any failure restores the backup and reloads. It needs a
+  superuser connection and writes via `COPY … TO PROGRAM` (no adminpack needed).
 - Admin statements run over the pgx simple protocol (required for
   `CREATE`/`DROP DATABASE`), with quoted identifiers.
 - There is no code path that drops a database on its own.
