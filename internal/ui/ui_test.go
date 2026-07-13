@@ -354,6 +354,34 @@ func TestRolesConnLimitFlow(t *testing.T) {
 	}
 }
 
+// TestDashboardCardsUniform proves every dashboard card renders at the same
+// height (padded, never clipped) even with very different content lengths.
+func TestDashboardCardsUniform(t *testing.T) {
+	v := newDashboardView(&config.Config{}, nil)
+	v.SetSize(120, 40)
+	cards := []dashCard{
+		{"Short", []string{"one"}},
+		{"Tall", []string{"one", "two", "three", "four"}},
+		{"Mid", []string{"a", "b"}},
+	}
+	h := 0
+	for _, c := range cards {
+		if ch := v.cardHeight(c); ch > h {
+			h = ch
+		}
+	}
+	lines := func(s string) int { return strings.Count(s, "\n") + 1 }
+	want := -1
+	for _, c := range cards {
+		got := lines(stCardBorder.Width(v.cardWidth()).Height(h).Render(v.cardContent(c)))
+		if want == -1 {
+			want = got
+		} else if got != want {
+			t.Errorf("card %q renders %d lines, want %d — cards are not uniform", c.title, got, want)
+		}
+	}
+}
+
 // TestRolesMenuCancel checks that esc dismisses the manage menu without action.
 func TestRolesMenuCancel(t *testing.T) {
 	v := newRolesView(&config.Config{}, nil)

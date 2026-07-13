@@ -88,36 +88,12 @@ func (v *dashboardView) View() string {
 
 	d := v.data
 
-	// --- top cards ---
 	connValue := fmt.Sprintf("%d / %d", d.TotalConns, d.MaxConns)
 	connHead := colorConns(d.TotalConns, d.MaxConns, connValue)
 	if d.Reserved > 0 {
 		connHead += stLabel.Render(fmt.Sprintf("  ·  resv %d", d.Reserved))
 	}
-	connCard := v.card("Connections", []string{
-		connHead,
-		stLabel.Render(fmt.Sprintf("active %d · idle %d · tx %d", d.Active, d.Idle, d.IdleInTx)),
-	})
 
-	cacheCard := v.card("Cache hit", []string{
-		colorRatio(d.CacheHitRatio),
-		stLabel.Render(fmt.Sprintf("commits %s · rollbacks %s",
-			human(d.Commits), human(d.Rollbacks))),
-	})
-
-	sizeCard := v.card("Storage", []string{
-		stValue.Render(d.TotalSize),
-		stLabel.Render(fmt.Sprintf("%d databases", d.DBCount)),
-	})
-
-	uptimeCard := v.card("Uptime", []string{
-		stValue.Render(humanDuration(d.Uptime)),
-		stLabel.Render("since " + d.StartedAt.Format("2006-01-02 15:04")),
-	})
-
-	row1 := lipgloss.JoinHorizontal(lipgloss.Top, connCard, cacheCard, sizeCard, uptimeCard)
-
-	// --- server / longest query ---
 	longest := "—"
 	longStyle := stValue
 	if d.LongestQuery > 0 {
@@ -128,36 +104,51 @@ func (v *dashboardView) View() string {
 			longStyle = stWarnV
 		}
 	}
-	serverCard := v.card("Server", []string{
-		stValue.Render(d.Version),
-		stLabel.Render("client: ") + stValue.Render("pgtui "+appVersion(v.cfg.Version)),
-		stLabel.Render("longest active query: ") + longStyle.Render(longest),
-	})
 
-	// --- replication ---
-	var repl string
-	if len(d.Replicas) == 0 {
-		repl = v.card("Replication", []string{stLabel.Render("no standby connected")})
-	} else {
-		lines := make([]string, 0, len(d.Replicas))
+	replLines := []string{stLabel.Render("no standby connected")}
+	if len(d.Replicas) > 0 {
+		replLines = replLines[:0]
 		for _, r := range d.Replicas {
 			st := stGood.Render(r.State)
 			if r.State != "streaming" {
 				st = stWarnV.Render(r.State)
 			}
-			lines = append(lines, fmt.Sprintf("%s  %s  sync=%s  lag=%s",
+			replLines = append(replLines, fmt.Sprintf("%s  %s  sync=%s  lag=%s",
 				stValue.Render(r.ClientAddr), st, r.SyncState, r.Lag))
 		}
-		repl = v.card("Replication", lines)
 	}
 
-	row2 := lipgloss.JoinHorizontal(lipgloss.Top, serverCard, repl)
+	row1 := []dashCard{
+		{"Connections", []string{connHead,
+			stLabel.Render(fmt.Sprintf("active %d · idle %d · tx %d", d.Active, d.Idle, d.IdleInTx))}},
+		{"Cache hit", []string{colorRatio(d.CacheHitRatio),
+			stLabel.Render(fmt.Sprintf("commits %s · rollbacks %s", human(d.Commits), human(d.Rollbacks)))}},
+		{"Storage", []string{stValue.Render(d.TotalSize),
+			stLabel.Render(fmt.Sprintf("%d databases", d.DBCount))}},
+		{"Uptime", []string{stValue.Render(humanDuration(d.Uptime)),
+			stLabel.Render("since " + d.StartedAt.Format("2006-01-02 15:04"))}},
+	}
+	row2 := []dashCard{
+		{"Server", []string{stValue.Render(d.Version),
+			stLabel.Render("client: ") + stValue.Render("pgtui "+appVersion(v.cfg.Version)),
+			stLabel.Render("longest active query: ") + longStyle.Render(longest)}},
+		{"Replication", replLines},
+	}
+
+	// Uniform card height = the tallest card's content, so every box is the
+	// same size. Height only pads (never clips), so nothing is cut off.
+	h := 0
+	for _, c := range append(append([]dashCard{}, row1...), row2...) {
+		if ch := v.cardHeight(c); ch > h {
+			h = ch
+		}
+	}
 
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString(row1)
+	b.WriteString(v.renderRow(row1, h))
 	b.WriteString("\n\n")
-	b.WriteString(row2)
+	b.WriteString(v.renderRow(row2, h))
 	if adv := v.connAdvisor(d); adv != "" {
 		b.WriteString("\n\n")
 		b.WriteString(adv)
@@ -197,12 +188,33 @@ func (v *dashboardView) connAdvisor(d db.DashboardData) string {
 	return title + "\n" + strings.Join(lines, "\n")
 }
 
-// card renders a card with a title and content lines.
-func (v *dashboardView) card(title string, lines []string) string {
+// dashCard is a dashboard metric card's title and content lines.
+type dashCard struct {
+	title string
+	lines []string
+}
+
+func (v *dashboardView) cardContent(c dashCard) string {
+	head := lipgloss.NewStyle().Foreground(colMuted).Bold(true).Render(strings.ToUpper(c.title))
+	return head + "\n" + strings.Join(c.lines, "\n")
+}
+
+// cardHeight is the number of content lines the card needs after wrapping at its
+// inner text width (card width minus the horizontal padding).
+func (v *dashboardView) cardHeight(c dashCard) int {
+	innerW := clampInt(v.cardWidth()-2, 4, 200)
+	return lipgloss.Height(lipgloss.NewStyle().Width(innerW).Render(v.cardContent(c)))
+}
+
+// renderRow renders a row of cards, all forced to the same content height so the
+// boxes line up. Height pads short cards; it never clips (height is the max).
+func (v *dashboardView) renderRow(cards []dashCard, height int) string {
 	w := v.cardWidth()
-	head := lipgloss.NewStyle().Foreground(colMuted).Bold(true).Render(strings.ToUpper(title))
-	content := head + "\n" + strings.Join(lines, "\n")
-	return stCardBorder.Width(w).Render(content)
+	rendered := make([]string, len(cards))
+	for i, c := range cards {
+		rendered[i] = stCardBorder.Width(w).Height(height).Render(v.cardContent(c))
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
 }
 
 func (v *dashboardView) cardWidth() int {
