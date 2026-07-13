@@ -46,6 +46,131 @@ func ReadTuningSettings(ctx context.Context, p Pinger) (map[string]RawSetting, e
 	return ReadSettings(ctx, p, tuningSettingNames)
 }
 
+// Setting is a full pg_settings row for the ALTER SYSTEM editor.
+type Setting struct {
+	Name           string
+	Setting        string
+	Unit           string
+	Context        string // internal|postmaster|sighup|superuser|backend|user|...
+	VarType        string // bool|integer|real|enum|string
+	Category       string
+	ShortDesc      string
+	MinVal         string
+	MaxVal         string
+	EnumVals       []string
+	BootVal        string
+	ResetVal       string
+	PendingRestart bool
+}
+
+// Changeable reports whether the GUC can be changed at all (internal settings
+// are compile-time and cannot).
+func (s Setting) Changeable() bool { return s.Context != "internal" }
+
+// NeedsRestart reports whether changing the GUC only takes effect after a full
+// server restart (context = postmaster).
+func (s Setting) NeedsRestart() bool { return s.Context == "postmaster" }
+
+// ListAllSettings returns every GUC from pg_settings, ordered by name.
+func ListAllSettings(ctx context.Context, p Pinger) ([]Setting, error) {
+	rows, err := p.Query(ctx, `
+		select name, setting, coalesce(unit,''), context, vartype,
+		       coalesce(category,''), coalesce(short_desc,''),
+		       coalesce(min_val,''), coalesce(max_val,''),
+		       coalesce(enumvals,'{}'), coalesce(boot_val,''), coalesce(reset_val,''),
+		       pending_restart
+		from pg_settings
+		order by name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Setting
+	for rows.Next() {
+		var s Setting
+		if err := rows.Scan(&s.Name, &s.Setting, &s.Unit, &s.Context, &s.VarType,
+			&s.Category, &s.ShortDesc, &s.MinVal, &s.MaxVal, &s.EnumVals,
+			&s.BootVal, &s.ResetVal, &s.PendingRestart); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// BuildAlterSystemSet builds ALTER SYSTEM SET name = 'value'. The value is
+// quoted as a literal, which Postgres coerces for any GUC type.
+func BuildAlterSystemSet(name, value string) string {
+	return "ALTER SYSTEM SET " + QuoteIdent(name) + " = " + QuoteLiteral(value)
+}
+
+// BuildAlterSystemReset builds ALTER SYSTEM RESET name (reverts to the default).
+func BuildAlterSystemReset(name string) string {
+	return "ALTER SYSTEM RESET " + QuoteIdent(name)
+}
+
+// ReloadConf asks the server to reload configuration (pg_reload_conf), applying
+// sighup-context changes without a restart.
+func ReloadConf(ctx context.Context, p Pinger) error {
+	var ok bool
+	return p.QueryRow(ctx, "select pg_reload_conf()").Scan(&ok)
+}
+
+// ValidateSettingValue checks a proposed value against a Setting's type and
+// bounds. It is pure/auditable. Values carrying a unit suffix (e.g. "8MB") for
+// numeric GUCs are left for the server to validate.
+func ValidateSettingValue(s Setting, value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fmt.Errorf("value is required")
+	}
+	switch s.VarType {
+	case "bool":
+		switch strings.ToLower(value) {
+		case "on", "off", "true", "false", "yes", "no", "1", "0":
+			return nil
+		default:
+			return fmt.Errorf("must be a boolean (on/off)")
+		}
+	case "enum":
+		for _, e := range s.EnumVals {
+			if e == value {
+				return nil
+			}
+		}
+		return fmt.Errorf("must be one of: %s", strings.Join(s.EnumVals, ", "))
+	case "integer", "real":
+		if hasUnitSuffix(value) {
+			return nil // "8MB", "500ms" — the server validates units
+		}
+		f, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return fmt.Errorf("must be a number")
+		}
+		if min, err := strconv.ParseFloat(s.MinVal, 64); err == nil && f < min {
+			return fmt.Errorf("below minimum %s", s.MinVal)
+		}
+		if max, err := strconv.ParseFloat(s.MaxVal, 64); err == nil && f > max {
+			return fmt.Errorf("above maximum %s", s.MaxVal)
+		}
+		return nil
+	}
+	return nil // string: accept anything
+}
+
+// hasUnitSuffix reports whether the value looks like a number with a unit
+// suffix (e.g. "8MB", "500ms"): it must start with a digit/sign/dot and end in
+// a letter. "abc" is not unit-bearing (it's just invalid).
+func hasUnitSuffix(v string) bool {
+	if len(v) < 2 {
+		return false
+	}
+	first, last := v[0], v[len(v)-1]
+	startsNum := (first >= '0' && first <= '9') || first == '+' || first == '-' || first == '.'
+	endsAlpha := (last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z')
+	return startsNum && endsAlpha
+}
+
 // memUnitBytes converts a pg_settings memory unit ("kB", "MB", "8kB", ...) to
 // the number of bytes one increment represents. ok=false for non-memory units.
 func memUnitBytes(unit string) (int64, bool) {

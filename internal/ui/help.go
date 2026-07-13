@@ -76,7 +76,9 @@ func helpBody() string {
 		{"r", "reload the blocking tree"},
 		{"", ""},
 		{"Tuning", ""},
-		{"a / h", "switch section: advisor / pg_hba"},
+		{"a / s / h", "switch section: advisor / settings / pg_hba"},
+		{"enter / x", "settings: edit (ALTER SYSTEM) / reset a GUC"},
+		{"/", "settings: filter by name"},
 		{"r", "re-read pg_settings / pg_hba"},
 	}
 

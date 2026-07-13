@@ -48,7 +48,7 @@ for the management actions.
 | **4 · Locks** | Blocking tree: which session waits on which. |
 | **5 · Sessions** | `pg_stat_activity` with state/wait/duration/query. `c` cancels the query, `k` terminates the connection. |
 | **6 · Roles** | Roles with login/super/createdb attributes and their connection limit (`CONN`, ∞ = unlimited). `enter` **manage** the selected role (reset password — generates a random 32-char one, shown once; or set the connection limit), `n` create, `g` grant to a database, `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss). |
-| **7 · Tuning** | Config sections (switch with `a` / `h`): a read-only **configuration advisor** (`shared_buffers`, `effective_cache_size`, `work_mem`, `maintenance_work_mem`, `max_connections` — current vs recommended with a verdict; concrete targets need `PGTUI_HOST_RAM_MB` / `PGTUI_HOST_CPUS`) and a **pg_hba viewer** (`pg_hba_file_rules`, flagging lines that fail to parse). `r` refresh. |
+| **7 · Tuning** | Config sections (switch with `a` / `s` / `h`): a read-only **configuration advisor** (`shared_buffers`, `effective_cache_size`, `work_mem`, `maintenance_work_mem`, `max_connections` — current vs recommended with a verdict; concrete targets need `PGTUI_HOST_RAM_MB` / `PGTUI_HOST_CPUS`); an **ALTER SYSTEM editor** (`enter` edit / `x` reset any GUC — validated against type & bounds, applied with `pg_reload_conf`, `/` filters, restart-required settings are flagged); and a **pg_hba viewer** (`pg_hba_file_rules`, flagging lines that fail to parse). `r` refresh. |
 
 ## Install
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -17,11 +18,12 @@ type tuningSection int
 
 const (
 	secAdvisor tuningSection = iota
+	secSettings
 	secHBA
 )
 
-// tuningView is tab 7. It hosts several read-mostly config sections: the
-// settings advisor (Unit 2) and the pg_hba viewer (Unit 3).
+// tuningView is tab 7. It hosts the config sections: the settings advisor
+// (Unit 2), the ALTER SYSTEM editor (Unit 4) and the pg_hba viewer (Unit 3).
 type tuningView struct {
 	cfg *config.Config
 	mgr *db.Manager
@@ -32,6 +34,18 @@ type tuningView struct {
 	in     db.TuningInput
 	recs   []db.TuningRec
 	advErr error
+
+	// settings (ALTER SYSTEM editor)
+	setList      []db.Setting
+	setView      []db.Setting
+	setTbl       table.Model
+	setErr       error
+	setFilter    textinput.Model
+	setFiltering bool
+	setForm      form
+	setEdit      db.Setting
+	setEditRst   bool
+	setStatus    string
 
 	// pg_hba
 	hbaFile     string
@@ -44,11 +58,16 @@ type tuningView struct {
 }
 
 func newTuningView(cfg *config.Config, mgr *db.Manager) *tuningView {
-	return &tuningView{cfg: cfg, mgr: mgr, hbaTbl: newTable()}
+	fi := textinput.New()
+	fi.Placeholder = "filter by name"
+	fi.CharLimit = 60
+	fi.Width = 30
+	return &tuningView{cfg: cfg, mgr: mgr, hbaTbl: newTable(), setTbl: newTable(), setFilter: fi}
 }
 
-func (v *tuningView) Title() string        { return "Tuning" }
-func (v *tuningView) CapturingInput() bool { return false }
+func (v *tuningView) Title() string { return "Tuning" }
+
+func (v *tuningView) CapturingInput() bool { return v.setForm.active || v.setFiltering }
 
 func (v *tuningView) SetSize(w, h int) {
 	v.width, v.height = w, h
@@ -57,6 +76,7 @@ func (v *tuningView) SetSize(w, h int) {
 		th = 3
 	}
 	v.hbaTbl.SetHeight(th)
+	v.setTbl.SetHeight(th)
 	addrW := clampInt(w-60, 12, 30)
 	v.hbaTbl.SetColumns([]table.Column{
 		{Title: "LINE", Width: 5},
@@ -66,15 +86,30 @@ func (v *tuningView) SetSize(w, h int) {
 		{Title: "ADDRESS", Width: addrW},
 		{Title: "METHOD", Width: 14},
 	})
+	nameW := clampInt(w-42, 20, 44)
+	v.setTbl.SetColumns([]table.Column{
+		{Title: "NAME", Width: nameW},
+		{Title: "VALUE", Width: 14},
+		{Title: "UNIT", Width: 6},
+		{Title: "CONTEXT", Width: 11},
+		{Title: "PEND", Width: 4},
+	})
 }
 
 func (v *tuningView) FooterHints() string {
-	return hint("a", "advisor") + "  " + hint("h", "pg_hba") + "  " + hint("r", "refresh")
+	sections := hint("a", "advisor") + "  " + hint("s", "settings") + "  " + hint("h", "pg_hba")
+	switch v.section {
+	case secSettings:
+		return hint("enter", "edit") + "  " + hint("x", "reset") + "  " + hint("/", "filter") + "  " +
+			sections + "  " + hint("r", "refresh")
+	default:
+		return sections + "  " + hint("r", "refresh")
+	}
 }
 
 func (v *tuningView) Init() tea.Cmd {
-	v.advErr, v.hbaErr = nil, nil
-	return tea.Batch(loadTuning(v.mgr, v.cfg.HostRAMMB, v.cfg.HostCPUs), loadHBA(v.mgr))
+	v.advErr, v.hbaErr, v.setErr = nil, nil, nil
+	return tea.Batch(loadTuning(v.mgr, v.cfg.HostRAMMB, v.cfg.HostCPUs), loadHBA(v.mgr), loadAllSettings(v.mgr))
 }
 
 func (v *tuningView) Update(msg tea.Msg) tea.Cmd {
@@ -86,32 +121,186 @@ func (v *tuningView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case hbaMsg:
-		v.hbaErr = msg.err
-		v.hbaFile = msg.file
+		v.hbaErr, v.hbaFile = msg.err, msg.file
 		if msg.err == nil {
 			v.hbaRules = msg.rules
 			v.rebuildHBATable()
 		}
 		return nil
+	case allSettingsMsg:
+		v.setErr = msg.err
+		if msg.err == nil {
+			v.setList = msg.settings
+			v.applySettingsFilter()
+		}
+		return nil
+	case settingApplyMsg:
+		if msg.err != nil {
+			v.setStatus = stErr.Render("✗ " + msg.name + ": " + oneLineUI(msg.err))
+			return nil
+		}
+		v.setStatus = stGood.Render("✓ " + msg.name + " applied")
+		if msg.restart {
+			v.setStatus += stWarnV.Render("  — restart required to take effect")
+		}
+		return loadAllSettings(v.mgr)
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "r":
-			return v.Init()
-		case "a":
-			v.section = secAdvisor
-			return nil
-		case "h":
-			v.section = secHBA
-			return nil
-		}
-		if v.section == secHBA {
-			var cmd tea.Cmd
-			v.hbaTbl, cmd = v.hbaTbl.Update(msg)
-			return cmd
-		}
+		return v.handleKey(msg)
 	}
 	return nil
 }
+
+func (v *tuningView) handleKey(msg tea.KeyMsg) tea.Cmd {
+	// Edit form has priority.
+	if v.setForm.active {
+		res, cmd := v.setForm.update(msg)
+		switch res {
+		case formSubmit:
+			return v.submitSettingEdit()
+		case formCancel:
+			return nil
+		}
+		return cmd
+	}
+	// Filter capture.
+	if v.setFiltering {
+		switch msg.String() {
+		case "esc", "enter":
+			v.setFiltering = false
+			v.setFilter.Blur()
+			return nil
+		}
+		var cmd tea.Cmd
+		v.setFilter, cmd = v.setFilter.Update(msg)
+		v.applySettingsFilter()
+		return cmd
+	}
+
+	switch msg.String() {
+	case "r":
+		return v.Init()
+	case "a":
+		v.section = secAdvisor
+		return nil
+	case "s":
+		v.section = secSettings
+		return nil
+	case "h":
+		v.section = secHBA
+		return nil
+	}
+
+	var cmd tea.Cmd
+	switch v.section {
+	case secHBA:
+		v.hbaTbl, cmd = v.hbaTbl.Update(msg)
+	case secSettings:
+		switch msg.String() {
+		case "/":
+			v.setFiltering = true
+			return v.setFilter.Focus()
+		case "enter":
+			return v.openSettingEdit()
+		case "x":
+			return v.resetSetting()
+		}
+		v.setTbl, cmd = v.setTbl.Update(msg)
+	}
+	return cmd
+}
+
+// --- settings section ---
+
+func (v *tuningView) applySettingsFilter() {
+	q := strings.ToLower(strings.TrimSpace(v.setFilter.Value()))
+	v.setView = v.setView[:0]
+	rows := make([]table.Row, 0, len(v.setList))
+	for _, s := range v.setList {
+		if q != "" && !strings.Contains(strings.ToLower(s.Name), q) {
+			continue
+		}
+		v.setView = append(v.setView, s)
+		pend := ""
+		if s.PendingRestart {
+			pend = "⚠"
+		}
+		rows = append(rows, table.Row{s.Name, s.Setting, s.Unit, s.Context, pend})
+	}
+	v.setTbl.SetRows(rows)
+	if v.setTbl.Cursor() >= len(rows) {
+		v.setTbl.SetCursor(0)
+	}
+}
+
+func (v *tuningView) selectedSetting() (db.Setting, bool) {
+	i := v.setTbl.Cursor()
+	if i < 0 || i >= len(v.setView) {
+		return db.Setting{}, false
+	}
+	return v.setView[i], true
+}
+
+func (v *tuningView) openSettingEdit() tea.Cmd {
+	s, ok := v.selectedSetting()
+	if !ok {
+		return nil
+	}
+	if !s.Changeable() {
+		v.setStatus = stWarnV.Render(s.Name + " is compile-time (context=internal) — cannot change")
+		return nil
+	}
+	v.setEdit = s
+	title := "ALTER SYSTEM · " + s.Name + "  " + stKeyHint.Render("("+settingConstraint(s)+")")
+	if s.NeedsRestart() {
+		title += "  " + stWarnV.Render("restart required")
+	}
+	f := textField("value", "New value", s.Setting)
+	f.input.SetValue(s.Setting)
+	return v.setForm.open(truncate(title, clampInt(v.width-14, 30, 80)), []formField{f})
+}
+
+func (v *tuningView) submitSettingEdit() tea.Cmd {
+	val := strings.TrimSpace(v.setForm.value("value"))
+	if err := db.ValidateSettingValue(v.setEdit, val); err != nil {
+		v.setStatus = stWarnV.Render(v.setEdit.Name + ": " + err.Error())
+		return nil // keep the form open to fix the value
+	}
+	name := v.setEdit.Name
+	restart := v.setEdit.NeedsRestart()
+	v.setForm.close()
+	return applySetting(v.mgr, name, val, false, restart)
+}
+
+func (v *tuningView) resetSetting() tea.Cmd {
+	s, ok := v.selectedSetting()
+	if !ok {
+		return nil
+	}
+	if !s.Changeable() {
+		v.setStatus = stWarnV.Render(s.Name + " is compile-time — cannot reset")
+		return nil
+	}
+	return applySetting(v.mgr, s.Name, "", true, s.NeedsRestart())
+}
+
+func settingConstraint(s db.Setting) string {
+	switch s.VarType {
+	case "bool":
+		return "on/off"
+	case "enum":
+		return "enum: " + strings.Join(s.EnumVals, "/")
+	case "integer", "real":
+		u := ""
+		if s.Unit != "" {
+			u = " " + s.Unit
+		}
+		return fmt.Sprintf("%s%s, %s..%s", s.VarType, u, s.MinVal, s.MaxVal)
+	default:
+		return s.VarType
+	}
+}
+
+// --- pg_hba section ---
 
 func (v *tuningView) rebuildHBATable() {
 	v.hbaErrCount = 0
@@ -136,9 +325,16 @@ func (v *tuningView) rebuildHBATable() {
 	}
 }
 
+// --- rendering ---
+
 func (v *tuningView) View() string {
+	if v.setForm.active {
+		return v.setForm.view(v.width, v.height)
+	}
 	selector := v.sectionSelector()
 	switch v.section {
+	case secSettings:
+		return selector + "\n" + v.settingsView()
 	case secHBA:
 		return selector + "\n" + v.hbaView()
 	default:
@@ -153,7 +349,9 @@ func (v *tuningView) sectionSelector() string {
 		}
 		return stTabInactive.Render(label)
 	}
-	return "\n" + item(v.section == secAdvisor, "a · Advisor") + item(v.section == secHBA, "h · pg_hba")
+	return "\n" + item(v.section == secAdvisor, "a · Advisor") +
+		item(v.section == secSettings, "s · Settings") +
+		item(v.section == secHBA, "h · pg_hba")
 }
 
 func (v *tuningView) advisorView() string {
@@ -199,6 +397,21 @@ func (v *tuningView) advisorView() string {
 	return "\n" + title + host + "\n\n" + header + "\n" + strings.Join(lines, "\n")
 }
 
+func (v *tuningView) settingsView() string {
+	if v.setErr != nil {
+		return "\n" + stErr.Render("Failed to read pg_settings: "+v.setErr.Error())
+	}
+	title := lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render("ALTER SYSTEM editor")
+	head := "\n" + title + stLabel.Render(fmt.Sprintf("  %d settings", len(v.setView)))
+	if v.setFiltering || v.setFilter.Value() != "" {
+		head += "   " + stKeyHint.Render("filter ") + v.setFilter.View()
+	}
+	if v.setStatus != "" {
+		head += "   " + v.setStatus
+	}
+	return head + "\n" + v.setTbl.View()
+}
+
 func (v *tuningView) hbaView() string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render("Host-based authentication")
 	head := "\n" + title
@@ -233,4 +446,10 @@ func humanMB(mb int) string {
 		return fmt.Sprintf("%.1f GB", float64(mb)/1024)
 	}
 	return fmt.Sprintf("%d MB", mb)
+}
+
+// oneLineUI collapses an error to a single line for status display.
+func oneLineUI(err error) string {
+	s := strings.ReplaceAll(pgErrorText(err), "\n", " ")
+	return truncate(s, 80)
 }

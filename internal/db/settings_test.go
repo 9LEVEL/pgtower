@@ -28,6 +28,68 @@ func TestBuildTuningInput(t *testing.T) {
 	}
 }
 
+func TestBuildAlterSystem(t *testing.T) {
+	if g := db.BuildAlterSystemSet("work_mem", "8MB"); g != `ALTER SYSTEM SET "work_mem" = '8MB'` {
+		t.Errorf("BuildAlterSystemSet = %q", g)
+	}
+	if g := db.BuildAlterSystemReset("work_mem"); g != `ALTER SYSTEM RESET "work_mem"` {
+		t.Errorf("BuildAlterSystemReset = %q", g)
+	}
+}
+
+func TestSettingContext(t *testing.T) {
+	if (db.Setting{Context: "internal"}).Changeable() {
+		t.Error("internal setting should not be changeable")
+	}
+	if !(db.Setting{Context: "sighup"}).Changeable() {
+		t.Error("sighup setting should be changeable")
+	}
+	if !(db.Setting{Context: "postmaster"}).NeedsRestart() {
+		t.Error("postmaster setting needs restart")
+	}
+	if (db.Setting{Context: "user"}).NeedsRestart() {
+		t.Error("user setting does not need restart")
+	}
+}
+
+func TestValidateSettingValue(t *testing.T) {
+	boolS := db.Setting{VarType: "bool"}
+	if err := db.ValidateSettingValue(boolS, "on"); err != nil {
+		t.Errorf("bool on: %v", err)
+	}
+	if err := db.ValidateSettingValue(boolS, "maybe"); err == nil {
+		t.Error("bool maybe should fail")
+	}
+
+	enumS := db.Setting{VarType: "enum", EnumVals: []string{"replica", "logical", "minimal"}}
+	if err := db.ValidateSettingValue(enumS, "logical"); err != nil {
+		t.Errorf("enum logical: %v", err)
+	}
+	if err := db.ValidateSettingValue(enumS, "nope"); err == nil {
+		t.Error("enum nope should fail")
+	}
+
+	intS := db.Setting{VarType: "integer", MinVal: "64", MaxVal: "1000"}
+	if err := db.ValidateSettingValue(intS, "128"); err != nil {
+		t.Errorf("int 128: %v", err)
+	}
+	if err := db.ValidateSettingValue(intS, "10"); err == nil {
+		t.Error("int 10 below min should fail")
+	}
+	if err := db.ValidateSettingValue(intS, "5000"); err == nil {
+		t.Error("int 5000 above max should fail")
+	}
+	if err := db.ValidateSettingValue(intS, "8MB"); err != nil {
+		t.Errorf("unit-bearing 8MB should pass (server validates): %v", err)
+	}
+	if err := db.ValidateSettingValue(intS, ""); err == nil {
+		t.Error("empty should fail")
+	}
+	if err := db.ValidateSettingValue(intS, "abc"); err == nil {
+		t.Error("non-numeric should fail")
+	}
+}
+
 func TestRecommend(t *testing.T) {
 	gb := int64(1) << 30
 	byName := func(recs []db.TuningRec) map[string]db.TuningRec {

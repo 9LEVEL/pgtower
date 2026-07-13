@@ -49,3 +49,87 @@ func TestReadTuningSettingsLive(t *testing.T) {
 		t.Errorf("Recommend returned %d rows, want 5", len(recs))
 	}
 }
+
+// TestAlterSystemRoundtripLive changes a reloadable GUC via ALTER SYSTEM, reloads
+// and confirms it took effect, then RESETs it back to the original value — a
+// fully reversible, self-cleaning round-trip.
+func TestAlterSystemRoundtripLive(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	mgr, err := db.NewManager(ctx, dsn, "postgres")
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	defer mgr.Close()
+	p, err := mgr.Pool(ctx, "postgres")
+	if err != nil {
+		t.Fatalf("Pool: %v", err)
+	}
+
+	all, err := db.ListAllSettings(ctx, p)
+	if err != nil {
+		t.Fatalf("ListAllSettings: %v", err)
+	}
+	if len(all) < 50 {
+		t.Fatalf("pg_settings returned only %d rows", len(all))
+	}
+	var wm db.Setting
+	for _, s := range all {
+		if s.Name == "work_mem" {
+			wm = s
+		}
+	}
+	if wm.Name == "" || wm.VarType != "integer" {
+		t.Fatalf("work_mem not found or unexpected: %+v", wm)
+	}
+
+	current := func() string {
+		var v string
+		if err := p.QueryRow(ctx, "select current_setting('work_mem')").Scan(&v); err != nil {
+			t.Fatalf("current_setting: %v", err)
+		}
+		return v
+	}
+	// SIGHUP (pg_reload_conf) propagates asynchronously, so poll until the
+	// backend picks up the new value.
+	waitFor := func(want string) bool {
+		for i := 0; i < 40; i++ {
+			if current() == want {
+				return true
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		return false
+	}
+	orig := current()
+
+	// always leave the cluster as we found it.
+	defer func() {
+		_, _ = db.ExecAdmin(ctx, p, db.BuildAlterSystemReset("work_mem"))
+		_ = db.ReloadConf(ctx, p)
+	}()
+
+	if _, err := db.ExecAdmin(ctx, p, db.BuildAlterSystemSet("work_mem", "8MB")); err != nil {
+		t.Fatalf("ALTER SYSTEM SET: %v", err)
+	}
+	if err := db.ReloadConf(ctx, p); err != nil {
+		t.Fatalf("ReloadConf: %v", err)
+	}
+	if !waitFor("8MB") {
+		t.Errorf("after set+reload, work_mem = %q, want 8MB", current())
+	}
+
+	if _, err := db.ExecAdmin(ctx, p, db.BuildAlterSystemReset("work_mem")); err != nil {
+		t.Fatalf("ALTER SYSTEM RESET: %v", err)
+	}
+	if err := db.ReloadConf(ctx, p); err != nil {
+		t.Fatalf("ReloadConf: %v", err)
+	}
+	if !waitFor(orig) {
+		t.Errorf("after reset+reload, work_mem = %q, want original %q", current(), orig)
+	}
+}

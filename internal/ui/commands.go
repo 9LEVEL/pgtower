@@ -89,6 +89,19 @@ type hbaMsg struct {
 	err   error
 }
 
+// allSettingsMsg carries the full pg_settings list for the ALTER SYSTEM editor.
+type allSettingsMsg struct {
+	settings []db.Setting
+	err      error
+}
+
+// settingApplyMsg is the result of an ALTER SYSTEM SET/RESET + reload.
+type settingApplyMsg struct {
+	name    string
+	restart bool
+	err     error
+}
+
 type tickMsg time.Time
 
 const (
@@ -237,6 +250,45 @@ func loadTuning(mgr *db.Manager, ramMB, cpus int) tea.Cmd {
 		}
 		in := db.BuildTuningInput(m, int64(ramMB)<<20, cpus)
 		return tuningMsg{in: in, recs: db.Recommend(in)}
+	}
+}
+
+// loadAllSettings reads the full pg_settings list for the editor.
+func loadAllSettings(mgr *db.Manager) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), clusterTimeout)
+		defer cancel()
+		p, err := mgr.Pool(ctx, mgr.AdminDB())
+		if err != nil {
+			return allSettingsMsg{err: err}
+		}
+		s, err := db.ListAllSettings(ctx, p)
+		return allSettingsMsg{settings: s, err: err}
+	}
+}
+
+// applySetting runs ALTER SYSTEM SET (or RESET when reset) then reloads the
+// configuration. restart is echoed back so the UI can warn when the change only
+// applies after a server restart.
+func applySetting(mgr *db.Manager, name, value string, reset, restart bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+		defer cancel()
+		p, err := mgr.Pool(ctx, mgr.AdminDB())
+		if err != nil {
+			return settingApplyMsg{name: name, restart: restart, err: err}
+		}
+		sql := db.BuildAlterSystemSet(name, value)
+		if reset {
+			sql = db.BuildAlterSystemReset(name)
+		}
+		if _, err := db.ExecAdmin(ctx, p, sql); err != nil {
+			return settingApplyMsg{name: name, restart: restart, err: err}
+		}
+		if err := db.ReloadConf(ctx, p); err != nil {
+			return settingApplyMsg{name: name, restart: restart, err: err}
+		}
+		return settingApplyMsg{name: name, restart: restart}
 	}
 }
 

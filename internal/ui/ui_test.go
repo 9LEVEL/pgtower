@@ -373,6 +373,38 @@ func TestTuningView(t *testing.T) {
 	assertContains(t, v2.View(), "host RAM/cores unknown", "PGTUI_HOST_RAM_MB")
 }
 
+// TestTuningSettingsSection drives the ALTER SYSTEM editor: list, filter, edit
+// form with constraints, and the compile-time guardrail.
+func TestTuningSettingsSection(t *testing.T) {
+	v := newTuningView(&config.Config{}, nil)
+	v.SetSize(120, 40)
+	v.Update(allSettingsMsg{settings: []db.Setting{
+		{Name: "work_mem", Setting: "4096", Unit: "kB", Context: "user", VarType: "integer", MinVal: "64", MaxVal: "2147483647"},
+		{Name: "max_connections", Setting: "100", Context: "postmaster", VarType: "integer", MinVal: "1", MaxVal: "262143"},
+		{Name: "block_size", Setting: "8192", Context: "internal", VarType: "integer"},
+	}})
+	v.Update(key("s")) // settings section
+	assertContains(t, v.View(), "ALTER SYSTEM editor", "3 settings", "work_mem", "max_connections")
+
+	// filter down to work_mem
+	v.Update(key("/"))
+	v.Update(key("work"))
+	assertContains(t, v.View(), "1 settings", "work_mem")
+	v.Update(key("esc"))
+
+	// open the edit form; title carries the type/bounds constraint
+	v.Update(key("enter"))
+	assertContains(t, v.View(), "ALTER SYSTEM · work_mem", "New value", "64..2147483647")
+	v.Update(key("esc")) // close the form
+
+	// select the compile-time setting -> cannot change
+	v.setFilter.SetValue("")
+	v.applySettingsFilter()
+	v.setTbl.SetCursor(2) // block_size (internal)
+	v.Update(key("enter"))
+	assertContains(t, v.View(), "compile-time")
+}
+
 // TestTuningHBASection checks the pg_hba viewer renders rules, the file path and
 // a parse-error banner, and that the section selector switches with 'h'.
 func TestTuningHBASection(t *testing.T) {
