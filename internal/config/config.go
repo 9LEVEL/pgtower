@@ -33,6 +33,12 @@ type Config struct {
 	// "use the built-in default"; the db layer clamps it to a safe range.
 	SCRAMIterations int
 
+	// HostRAMMB and HostCPUs describe the server host (Postgres can't report
+	// them via SQL). 0 = unknown; the tuning advisor then shows relative checks
+	// only. From PGTUI_HOST_RAM_MB / PGTUI_HOST_CPUS.
+	HostRAMMB int
+	HostCPUs  int
+
 	// Version is the binary version (injected in main via -ldflags), shown
 	// in the header. Filled in by whoever builds the Config.
 	Version string
@@ -80,6 +86,8 @@ func Load() (*Config, error) {
 		User:            user,
 		RefreshSeconds:  envInt("PGTUI_REFRESH_SECONDS", 5),
 		SCRAMIterations: envInt("PGTUI_SCRAM_ITERATIONS", 0),
+		HostRAMMB:       envInt("PGTUI_HOST_RAM_MB", 0),
+		HostCPUs:        envInt("PGTUI_HOST_CPUS", 0),
 	}, nil
 }
 

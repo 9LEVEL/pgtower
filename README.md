@@ -12,7 +12,7 @@ Single static binary, no dependencies, no container required.
 
 ```
  pgtui  v0.4.0                         postgres@db:5432 • admin db: postgres  9level.dev
- 1 Dashboard  2 Databases  3 Query  4 Locks  5 Sessions  6 Roles
+ 1 Dashboard  2 Databases  3 Query  4 Locks  5 Sessions  6 Roles  7 Tuning
  ╭ CONNECTIONS ╮ ╭ CACHE HIT ╮ ╭ STORAGE ─╮ ╭ UPTIME ─╮
  │ 40 / 50     │ │ 100.00%   │ │ 217 MB   │ │ 2h 27m  │
  ╰─────────────╯ ╰───────────╯ ╰──────────╯ ╰─────────╯
@@ -48,6 +48,7 @@ for the management actions.
 | **4 · Locks** | Blocking tree: which session waits on which. |
 | **5 · Sessions** | `pg_stat_activity` with state/wait/duration/query. `c` cancels the query, `k` terminates the connection. |
 | **6 · Roles** | Roles with login/super/createdb attributes and their connection limit (`CONN`, ∞ = unlimited). `enter` **manage** the selected role (reset password — generates a random 32-char one, shown once; or set the connection limit), `n` create, `g` grant to a database, `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss). |
+| **7 · Tuning** | Read-only **configuration advisor**: reads key GUCs (`shared_buffers`, `effective_cache_size`, `work_mem`, `maintenance_work_mem`, `max_connections`) and shows current vs recommended with a verdict. Concrete targets need the host RAM/cores (`PGTUI_HOST_RAM_MB` / `PGTUI_HOST_CPUS`); without them it shows relative checks. `r` refresh. |
 
 ## Install
 
@@ -77,6 +78,8 @@ $EDITOR .env
 DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/postgres?sslmode=disable
 PGTUI_REFRESH_SECONDS=5
 # PGTUI_SCRAM_ITERATIONS=15000   # PBKDF2 rounds for password-reset hashing
+# PGTUI_HOST_RAM_MB=8192         # host RAM for the Tuning advisor
+# PGTUI_HOST_CPUS=4              # host cores for the Tuning advisor
 ```
 
 - The database in the URL is the **admin db** — where cluster-level queries run

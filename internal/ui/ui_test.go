@@ -72,7 +72,7 @@ func TestModelNavigationRender(t *testing.T) {
 		Idle: 30, IdleInTx: 1, CacheHitRatio: 99.9, DBCount: 17, TotalSize: "216 MB",
 		Uptime: 2 * time.Hour, StartedAt: time.Now().Add(-2 * time.Hour),
 	}})
-	assertContains(t, m.View(), "Dashboard", "CONNECTIONS", "41 / 50", "v9.9.9", "9level.dev")
+	assertContains(t, m.View(), "Dashboard", "CONNECTIONS", "41 / 50", "v9.9.9", "9level.dev", "7 Tuning")
 
 	// Tab 2: Databases
 	m, _ = m.Update(key("2"))
@@ -352,6 +352,25 @@ func TestRolesConnLimitFlow(t *testing.T) {
 	if v.form.active {
 		t.Error("form should close after submitting a valid connection limit")
 	}
+}
+
+// TestTuningView renders the settings advisor with known input.
+func TestTuningView(t *testing.T) {
+	in := db.TuningInput{
+		RAMBytes: 8 << 30, CPUs: 4, MaxConnections: 100,
+		SharedBuffers: 128 << 20, EffectiveCache: 4 << 30, WorkMem: 4 << 20, MaintWorkMem: 64 << 20,
+	}
+	v := newTuningView(&config.Config{HostRAMMB: 8192, HostCPUs: 4}, nil)
+	v.SetSize(120, 40)
+	v.Update(tuningMsg{in: in, recs: db.Recommend(in)})
+	assertContains(t, v.View(), "Configuration advisor", "host RAM 8.0 GB",
+		"shared_buffers", "2.0 GB", "effective_cache_size", "work_mem", "max_connections")
+
+	// Unknown host RAM/cores -> hint to set the env vars.
+	v2 := newTuningView(&config.Config{}, nil)
+	v2.SetSize(120, 40)
+	v2.Update(tuningMsg{recs: db.Recommend(db.TuningInput{MaxConnections: 100, SharedBuffers: 128 << 20})})
+	assertContains(t, v2.View(), "host RAM/cores unknown", "PGTUI_HOST_RAM_MB")
 }
 
 // TestDashboardCardsUniform proves every dashboard card renders at the same

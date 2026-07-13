@@ -26,7 +26,7 @@ func (m *Model) sizeHelpViewport() {
 func helpBody() string {
 	rows := [][2]string{
 		{"Global navigation", ""},
-		{"1 – 6", "switch tab"},
+		{"1 – 7", "switch tab"},
 		{"tab / shift+tab", "next / previous tab"},
 		{"?", "open/close this help"},
 		{"q  /  ctrl+c", "quit"},
@@ -74,6 +74,9 @@ func helpBody() string {
 		{"", ""},
 		{"Locks", ""},
 		{"r", "reload the blocking tree"},
+		{"", ""},
+		{"Tuning", ""},
+		{"r", "re-read pg_settings and recompute the advisor"},
 	}
 
 	var b strings.Builder

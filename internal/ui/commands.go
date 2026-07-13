@@ -75,6 +75,13 @@ type execMsg struct {
 	err    error
 }
 
+// tuningMsg carries the settings advisor result.
+type tuningMsg struct {
+	in   db.TuningInput
+	recs []db.TuningRec
+	err  error
+}
+
 type tickMsg time.Time
 
 const (
@@ -204,6 +211,25 @@ func loadRoles(mgr *db.Manager) tea.Cmd {
 		}
 		rows, err := db.ListRoles(ctx, p)
 		return rolesMsg{rows: rows, err: err}
+	}
+}
+
+// loadTuning reads the advisor GUCs and computes recommendations using the
+// host RAM/cores (ramMB/cpus, 0 = unknown).
+func loadTuning(mgr *db.Manager, ramMB, cpus int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), clusterTimeout)
+		defer cancel()
+		p, err := mgr.Pool(ctx, mgr.AdminDB())
+		if err != nil {
+			return tuningMsg{err: err}
+		}
+		m, err := db.ReadTuningSettings(ctx, p)
+		if err != nil {
+			return tuningMsg{err: err}
+		}
+		in := db.BuildTuningInput(m, int64(ramMB)<<20, cpus)
+		return tuningMsg{in: in, recs: db.Recommend(in)}
 	}
 }
 
