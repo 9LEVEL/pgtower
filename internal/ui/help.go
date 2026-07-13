@@ -76,7 +76,8 @@ func helpBody() string {
 		{"r", "reload the blocking tree"},
 		{"", ""},
 		{"Tuning", ""},
-		{"r", "re-read pg_settings and recompute the advisor"},
+		{"a / h", "switch section: advisor / pg_hba"},
+		{"r", "re-read pg_settings / pg_hba"},
 	}
 
 	var b strings.Builder

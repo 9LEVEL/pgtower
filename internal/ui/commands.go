@@ -82,6 +82,13 @@ type tuningMsg struct {
 	err  error
 }
 
+// hbaMsg carries the parsed pg_hba rules and the file path.
+type hbaMsg struct {
+	file  string
+	rules []db.HBARule
+	err   error
+}
+
 type tickMsg time.Time
 
 const (
@@ -230,6 +237,21 @@ func loadTuning(mgr *db.Manager, ramMB, cpus int) tea.Cmd {
 		}
 		in := db.BuildTuningInput(m, int64(ramMB)<<20, cpus)
 		return tuningMsg{in: in, recs: db.Recommend(in)}
+	}
+}
+
+// loadHBA reads the pg_hba.conf path and its parsed rules (superuser only).
+func loadHBA(mgr *db.Manager) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), clusterTimeout)
+		defer cancel()
+		p, err := mgr.Pool(ctx, mgr.AdminDB())
+		if err != nil {
+			return hbaMsg{err: err}
+		}
+		file, _ := db.HBAFilePath(ctx, p)
+		rules, err := db.ListHBARules(ctx, p)
+		return hbaMsg{file: file, rules: rules, err: err}
 	}
 }
 

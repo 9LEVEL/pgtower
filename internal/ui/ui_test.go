@@ -373,6 +373,24 @@ func TestTuningView(t *testing.T) {
 	assertContains(t, v2.View(), "host RAM/cores unknown", "PGTUI_HOST_RAM_MB")
 }
 
+// TestTuningHBASection checks the pg_hba viewer renders rules, the file path and
+// a parse-error banner, and that the section selector switches with 'h'.
+func TestTuningHBASection(t *testing.T) {
+	v := newTuningView(&config.Config{}, nil)
+	v.SetSize(120, 40)
+	v.Update(hbaMsg{
+		file: "/etc/postgresql/pg_hba.conf",
+		rules: []db.HBARule{
+			{LineNumber: 90, Type: "local", Database: "all", UserName: "all", AuthMethod: "trust"},
+			{LineNumber: 95, Type: "host", Database: "all", UserName: "all", Address: "0.0.0.0/0", AuthMethod: "scram-sha-256"},
+			{LineNumber: 99, Type: "host", Database: "all", UserName: "all", Address: "::1", AuthMethod: "md5", Error: "bad line"},
+		},
+	})
+	v.Update(key("h")) // switch to the pg_hba section
+	assertContains(t, v.View(), "pg_hba", "Host-based authentication",
+		"/etc/postgresql/pg_hba.conf", "scram-sha-256", "1 line(s) failed to parse")
+}
+
 // TestDashboardCardsUniform proves every dashboard card renders at the same
 // height (padded, never clipped) even with very different content lengths.
 func TestDashboardCardsUniform(t *testing.T) {
