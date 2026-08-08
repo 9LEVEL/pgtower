@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/9level/pgtui/master/install.sh | sh
 #
 # Environment overrides:
-#   PGTUI_VERSION=v0.4.0            pin a version (default: latest release)
+#   PGTUI_VERSION=v0.5.0            pin a version (default: latest release)
 #   PGTUI_INSTALL_DIR=/opt/bin      install directory (default: /usr/local/bin)
 #
 # It does NOT compile: pgtui ships as a single static binary (CGO disabled), so

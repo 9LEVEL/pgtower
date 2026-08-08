@@ -11,7 +11,7 @@ Single static binary, no dependencies, no container required.
 <!-- TODO: add a demo GIF here -->
 
 ```
- pgtui  v0.4.0                         postgres@db:5432 • admin db: postgres  9level.dev
+ pgtui  v0.5.0                         postgres@db:5432 • admin db: postgres  9level.dev
  1 Dashboard  2 Databases  3 Query  4 Locks  5 Sessions  6 Roles  7 Tuning
  ╭ CONNECTIONS ╮ ╭ CACHE HIT ╮ ╭ STORAGE ─╮ ╭ UPTIME ─╮
  │ 40 / 50     │ │ 100.00%   │ │ 217 MB   │ │ 2h 27m  │
@@ -74,7 +74,7 @@ and macOS; only the CPU architecture matters:
 | **macOS** | ✅ | ✅ |
 | **Windows** | build from source / WSL | — |
 
-Tweak the install: `PGTUI_INSTALL_DIR="$HOME/.local/bin"` or `PGTUI_VERSION=v0.4.0`.
+Tweak the install: `PGTUI_INSTALL_DIR="$HOME/.local/bin"` or `PGTUI_VERSION=v0.5.0`.
 Prefer to read before you pipe to a shell? It's just [`install.sh`](install.sh).
 Prebuilt binaries are also attached to each
 [GitHub Release](https://github.com/9level/pgtui/releases).
@@ -225,8 +225,8 @@ log to a file: `PGTUI_DEBUG=/tmp/pgtui.log ./pgtui`.
 ## Distribution & releases
 
 ```bash
-make build-all VERSION=v0.4.0   # cross-compile to dist/ (linux/darwin, amd64/arm64)
-make release VERSION=v0.4.0     # validate semver + clean tree, tag, push
+make build-all VERSION=v0.5.0   # cross-compile to dist/ (linux/darwin, amd64/arm64)
+make release VERSION=v0.5.0     # validate semver + clean tree, tag, push
 ```
 
 Pushing a `v*.*.*` tag runs the CI (`.github/workflows/ci.yml`): tests, then
