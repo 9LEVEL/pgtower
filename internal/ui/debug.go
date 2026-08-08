@@ -21,7 +21,8 @@ func dbg(format string, args ...any) {
 		if path == "" {
 			return
 		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		// 0600: the log can contain keystrokes, keep it owner-only.
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if err != nil {
 			return
 		}

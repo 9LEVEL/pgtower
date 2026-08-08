@@ -61,7 +61,7 @@ func TestModelNavigationRender(t *testing.T) {
 	mgr := testManager(t)
 	defer mgr.Close()
 
-	cfg := &config.Config{Host: "192.168.1.242", Port: "5432", User: "postgres", AdminDB: "postgres", RefreshSeconds: 5, Version: "v9.9.9"}
+	cfg := &config.Config{Host: "192.0.2.10", Port: "5432", User: "postgres", AdminDB: "postgres", RefreshSeconds: 5, Version: "v9.9.9"}
 	var m tea.Model = New(cfg, mgr)
 
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})

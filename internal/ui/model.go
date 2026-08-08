@@ -107,8 +107,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 type statusMsg string
 
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	dbg("key=%q type=%d active=%d(%s) capturing=%v help=%v", msg.String(), msg.Type,
-		m.active, m.tabs[m.active].Title(), m.tabs[m.active].CapturingInput(), m.showHelp)
+	// Never log the actual key while a field is capturing text — it could be a
+	// password or other secret being typed into a form.
+	capturingNow := m.tabs[m.active].CapturingInput()
+	keyStr := msg.String()
+	if capturingNow {
+		keyStr = "<redacted>"
+	}
+	dbg("key=%q type=%d active=%d(%s) capturing=%v help=%v", keyStr, msg.Type,
+		m.active, m.tabs[m.active].Title(), capturingNow, m.showHelp)
 	// ctrl+c always quits.
 	if msg.Type == tea.KeyCtrlC {
 		m.quitting = true
