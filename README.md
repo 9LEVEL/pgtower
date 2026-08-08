@@ -33,10 +33,15 @@ data browser), but its focus is **cluster administration**:
   `\d`-style structure view.
 - **Locks** — a blocking tree showing who is waiting on whom.
 - **Dashboard** — connections vs `max_connections`, cache hit ratio, uptime,
-  replication, longest active query.
+  replication, longest active query, plus a **connection advisor** that flags
+  when you're near the limit or drowning in idle connections.
+- **Tuning** — a read-only settings advisor, an `ALTER SYSTEM` editor, and a
+  `pg_hba` viewer/editor with a lockout-proof safety net.
 
-It works **without a superuser**: a role with `CREATEROLE`/`CREATEDB` is enough
-for the management actions.
+Core management (roles, databases, sessions, queries) works **without a
+superuser** — a role with `CREATEROLE`/`CREATEDB` is enough. The **Tuning**
+tab's `ALTER SYSTEM` and `pg_hba` editing are the exception and require a
+superuser (see [Permissions](#permissions)).
 
 ## Features
 
@@ -56,14 +61,14 @@ pgtui is a compiled Go utility — a single static binary.
 
 ```bash
 # from source (Go 1.26+)
-git clone https://github.com/9level/pg-tui.git
-cd pg-tui
+git clone https://github.com/9level/pgtui.git
+cd pgtui
 make build          # -> ./pgtui
 make install        # -> /usr/local/bin/pgtui (sudo)
 ```
 
 Prebuilt binaries for Linux/macOS (amd64/arm64) are attached to each
-[GitHub Release](https://github.com/9level/pg-tui/releases).
+[GitHub Release](https://github.com/9level/pgtui/releases).
 
 ## Configuration
 
@@ -98,6 +103,11 @@ PGTUI_REFRESH_SECONDS=5
 - Management actions need the usual Postgres privileges: `CREATEROLE` to
   create/drop roles, `CREATEDB` to create databases, and ownership/`WITH ADMIN`
   to grant. No superuser required.
+- The **Tuning** tab is the exception. The settings advisor works for any role,
+  but `pg_hba_file_rules` (the pg_hba viewer) is superuser-only, `ALTER SYSTEM`
+  needs a superuser, and editing `pg_hba.conf` needs a superuser (it writes the
+  file via `COPY … TO PROGRAM`). Without those, the affected sections show as
+  read-only.
 
 ## Keyboard shortcuts
 
@@ -105,7 +115,7 @@ Press `?` in the app for the full, scrollable list.
 
 | Key | Action |
 |-----|--------|
-| `1`–`6` | switch tab |
+| `1`–`7` | switch tab |
 | `tab` / `shift+tab` | next / previous tab |
 | `?` | help (all shortcuts) |
 | `q` / `ctrl+c` | quit |
@@ -131,6 +141,11 @@ Press `?` in the app for the full, scrollable list.
 | `g` | grant to a database (CONNECT / ALL / owner / public schema) |
 | `D` | drop role (asks for the name) |
 | `F` | force-drop: reassign ownership to a successor, then drop — no data loss |
+| **Tuning** | |
+| `a` / `s` / `h` | switch section: advisor / settings / pg_hba |
+| `enter` / `x` | settings: edit (`ALTER SYSTEM`) / reset a GUC (`/` filters) |
+| `n` / `e` / `d` | pg_hba: add / edit / delete a rule (superuser) |
+| `r` | re-read `pg_settings` / `pg_hba` |
 
 ## Safety model
 
@@ -167,6 +182,16 @@ pgtui is built so you can't lose data by accident:
 make test     # unit + integration (integration self-skips without DATABASE_URL)
 make vet
 gofmt -l .    # should be empty
+```
+
+Need a throwaway cluster for the integration tests? A `docker-compose.yml`
+(PostgreSQL 18, superuser) ships with the repo:
+
+```bash
+docker compose up -d
+export DATABASE_URL='postgres://postgres:pgtui_test@127.0.0.1:5432/postgres?sslmode=disable'
+make test                                   # now runs the live tests too
+PGTUI_HBA_LIVE_TEST=1 go test ./...          # also the guarded pg_hba write test
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow. To debug the UI,

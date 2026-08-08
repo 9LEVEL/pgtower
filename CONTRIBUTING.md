@@ -18,8 +18,8 @@ set up, the conventions we follow, and how to propose changes.
 You need **Go 1.26+** and a reachable PostgreSQL instance.
 
 ```bash
-git clone https://github.com/9level/pg-tui.git
-cd pg-tui
+git clone https://github.com/9level/pgtui.git
+cd pgtui
 cp .env.example .env      # point DATABASE_URL at a dev database
 make build                # builds ./pgtui
 ./pgtui
