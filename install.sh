@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/9level/pgtui/master/install.sh | sh
 #
 # Environment overrides:
-#   PGTUI_VERSION=v0.5.0            pin a version (default: latest release)
+#   PGTUI_VERSION=v0.6.0            pin a version (default: latest release)
 #   PGTUI_INSTALL_DIR=/opt/bin      install directory (default: /usr/local/bin)
 #   PGTUI_CONFIG_DIR=/opt/pgtui     config directory to create (default: /opt/pgtui)
 #
