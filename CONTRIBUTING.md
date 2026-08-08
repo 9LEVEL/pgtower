@@ -20,8 +20,8 @@ You need **Go 1.26+** and a reachable PostgreSQL instance.
 ```bash
 git clone https://github.com/9level/pgtui.git
 cd pgtui
-cp .env.example .env      # point DATABASE_URL at a dev database
-make build                # builds ./pgtui
+cp config.yml.example config.yml   # set database_url (or export DATABASE_URL)
+make build                         # builds ./pgtui
 ./pgtui
 ```
 
@@ -29,7 +29,7 @@ make build                # builds ./pgtui
 
 ```bash
 make build     # compile
-make run       # build + run against ./.env
+make run       # build + run (reads ./config.yml or env vars)
 make vet       # go vet
 make test      # unit + integration tests
 gofmt -l .     # must print nothing (run `gofmt -w .` to fix)
@@ -65,14 +65,31 @@ PGTUI_DEBUG=/tmp/pgtui.log ./pgtui   # then: tail -f /tmp/pgtui.log
 
 ```
 main.go                 entrypoint, flags, version
-internal/config         .env / environment loading
-internal/db             pgx pools + all SQL (queries, admin, describe, safety)
+internal/config         config.yml + environment loading
+internal/db             pgx pools + all SQL (queries, admin, describe, safety, scram)
 internal/ui             Bubble Tea model, tabs, reusable modals/forms
+internal/update         GitHub release check + in-place self-update
 ```
 
 Each tab implements the `tabView` interface in `internal/ui/model.go`. Reusable
 pieces live in `confirm.go` (confirmation modal), `form.go` (text/select
-forms), and `alert.go` (scrollable message box).
+forms), `alert.go` (scrollable message box), `menu.go` (action menu) and
+`finder.go` (fuzzy quick-find overlay).
+
+## Releasing
+
+The version lives **only** in the git tag (injected via `-ldflags`). To cut one:
+
+```bash
+# tree clean, gofmt/vet/test green, all on master
+make release VERSION=vX.Y.Z   # validates semver + clean tree, tags, pushes the tag
+git push origin master        # release pushes only the tag — sync the branch too
+```
+
+Pushing the `v*.*.*` tag triggers CI, which cross-compiles and attaches the
+binaries + `SHA256SUMS` to a GitHub Release. Those asset names are load-bearing
+(`install.sh` and the in-app self-updater download them by name) — don't rename
+them. See [CLAUDE.md](CLAUDE.md) for the full checklist.
 
 ## Making a change
 

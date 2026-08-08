@@ -725,6 +725,49 @@ func TestUpdatePrompt(t *testing.T) {
 	}
 }
 
+// TestQuitConfirm: 'q' asks before leaving; 'n' stays, 'q' then 'y' quits.
+// ctrl+c is the immediate hard-quit and skips the prompt.
+func TestQuitConfirm(t *testing.T) {
+	mgr := testManager(t)
+	defer mgr.Close()
+	cfg := &config.Config{Host: "h", Port: "5432", User: "postgres", AdminDB: "postgres", RefreshSeconds: 5}
+	m := New(cfg, mgr)
+	var tm tea.Model = m
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	// 'q' opens the confirmation instead of quitting.
+	tm, _ = tm.Update(key("q"))
+	if !m.quitConfirm.active || m.quitting {
+		t.Fatal("'q' should open the quit confirmation, not quit")
+	}
+	assertContains(t, tm.View(), "Quit pgtui?")
+
+	// 'n' dismisses; the app keeps running.
+	tm, _ = tm.Update(key("n"))
+	if m.quitConfirm.active || m.quitting {
+		t.Error("'n' should dismiss the quit confirmation and keep running")
+	}
+
+	// 'q' then 'y' quits for real.
+	tm, _ = tm.Update(key("q"))
+	tm, cmd := tm.Update(key("y"))
+	if !m.quitting {
+		t.Error("'q' then 'y' should quit")
+	}
+	if cmd == nil {
+		t.Error("quitting should return a command (tea.Quit)")
+	}
+
+	// ctrl+c hard-quits without a prompt.
+	m2 := New(cfg, mgr)
+	var tm2 tea.Model = m2
+	tm2, _ = tm2.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	tm2, _ = tm2.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if m2.quitConfirm.active || !m2.quitting {
+		t.Error("ctrl+c should quit immediately, no confirmation")
+	}
+}
+
 func assertContains(t *testing.T, s string, subs ...string) {
 	t.Helper()
 	for _, sub := range subs {

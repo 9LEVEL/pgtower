@@ -50,11 +50,16 @@ type Model struct {
 	updateMenu    actionMenu
 	updateAlert   alertModal
 	updating      bool
+
+	// quit confirmation: 'q' asks before leaving (guards against a stray press);
+	// ctrl+c still hard-quits immediately.
+	quitConfirm confirmModal
 }
 
 // New builds the root model with all tabs.
 func New(cfg *config.Config, mgr *db.Manager) *Model {
-	m := &Model{cfg: cfg, mgr: mgr, helpVP: viewport.New(60, 10), updateAlert: newAlertModal()}
+	m := &Model{cfg: cfg, mgr: mgr, helpVP: viewport.New(60, 10),
+		updateAlert: newAlertModal(), quitConfirm: newConfirmModal()}
 	m.tabs = []tabView{
 		newDashboardView(cfg, mgr),
 		newDatabasesView(mgr),
@@ -169,6 +174,18 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Quit confirmation ('q' opened it; y/enter leaves, n/esc stays).
+	if m.quitConfirm.active {
+		switch m.quitConfirm.update(msg) {
+		case confirmYes:
+			m.quitting = true
+			return m, tea.Quit
+		case confirmNo:
+			return m, nil
+		}
+		return m, nil
+	}
+
 	// Help overlay: ↑↓ scroll; ?/esc/q close.
 	if m.showHelp {
 		if msg.String() == "?" || msg.Type == tea.KeyEsc || msg.String() == "q" {
@@ -186,8 +203,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !capturing {
 		switch msg.String() {
 		case "q":
-			m.quitting = true
-			return m, tea.Quit
+			m.quitConfirm.ask("Quit pgtui?", "Leave pgtui? This closes the app and its database connections.")
+			return m, nil
 		case "?":
 			m.openHelp()
 			return m, nil
@@ -246,6 +263,9 @@ func (m *Model) View() string {
 	}
 	if m.updateMenu.active {
 		return m.updateMenu.view(m.width, m.height)
+	}
+	if m.quitConfirm.active {
+		return m.quitConfirm.view(m.width, m.height)
 	}
 	return page
 }

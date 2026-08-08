@@ -1,6 +1,6 @@
-// Package config loads the TUI configuration from a config.yml file, a .env
-// file and the environment. Precedence, highest first: real environment
-// variables (incl. those a .env exported) > config.yml > built-in defaults.
+// Package config loads the TUI configuration from a config.yml file and the
+// environment. Precedence, highest first: environment variables > config.yml >
+// built-in defaults.
 package config
 
 import (
@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
 )
 
@@ -74,10 +73,9 @@ type fileConfig struct {
 	UpdateCheck     *bool  `yaml:"update_check"`
 }
 
-// Load reads .env + config.yml from the search directories, then builds the
-// Config with the environment taking precedence.
+// Load reads config.yml from the search directories, then builds the Config
+// with the environment taking precedence.
 func Load() (*Config, error) {
-	loadDotenv()
 	fc := loadFileConfig()
 
 	raw := strings.TrimSpace(os.Getenv("DATABASE_URL"))
@@ -127,8 +125,8 @@ func Load() (*Config, error) {
 	}, nil
 }
 
-// configDirs lists where pgtui looks for config.yml / .env, highest priority
-// first. PGTUI_CONFIG_DIR (if set) wins, then the working directory, next to the
+// configDirs lists where pgtui looks for config.yml, highest priority first.
+// PGTUI_CONFIG_DIR (if set) wins, then the working directory, next to the
 // binary, the user config dir, and finally the system locations.
 func configDirs() []string {
 	var dirs []string
@@ -144,18 +142,6 @@ func configDirs() []string {
 	}
 	dirs = append(dirs, DefaultConfigDir, "/etc/pgtui")
 	return dirs
-}
-
-// loadDotenv loads the first .env found across the search directories (and an
-// explicit PGTUI_ENV_FILE). godotenv never overwrites an already-exported
-// variable, so the real environment keeps precedence.
-func loadDotenv() {
-	if f := strings.TrimSpace(os.Getenv("PGTUI_ENV_FILE")); f != "" {
-		_ = godotenv.Load(f)
-	}
-	for _, dir := range configDirs() {
-		_ = godotenv.Load(filepath.Join(dir, ".env"))
-	}
 }
 
 // loadFileConfig reads the first config.yml found (or PGTUI_CONFIG, an explicit

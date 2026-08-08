@@ -14,7 +14,7 @@ PLATFORMS := linux/amd64 linux/arm64 darwin/arm64 darwin/amd64
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) .
 
-## run: compiles and runs (reads ./.env)
+## run: compiles and runs (reads ./config.yml or env vars)
 .PHONY: run
 run:
 	$(GO) run .

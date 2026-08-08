@@ -10,7 +10,7 @@ import (
 )
 
 // TestSmoke exercises all the queries against a real Postgres. It only runs
-// when DATABASE_URL is set (e.g. exported from .env). It is read-only.
+// when DATABASE_URL is set (exported into the environment). It is read-only.
 func TestSmoke(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {

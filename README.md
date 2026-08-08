@@ -15,7 +15,7 @@ Single static binary, no dependencies, no container required.
 <!-- TODO: add a demo GIF here -->
 
 ```
- pgtui  v0.6.0                         postgres@db:5432 • admin db: postgres  9level.dev
+ pgtui  v0.6.1                         postgres@db:5432 • admin db: postgres  9level.dev
  1 Dashboard  2 Databases  3 Query  4 Locks  5 Sessions  6 Roles  7 Tuning
  ╭ CONNECTIONS ╮ ╭ CACHE HIT ╮ ╭ STORAGE ─╮ ╭ UPTIME ─╮
  │ 40 / 50     │ │ 100.00%   │ │ 217 MB   │ │ 2h 27m  │
@@ -78,7 +78,7 @@ and macOS; only the CPU architecture matters:
 | **macOS** | ✅ | ✅ |
 | **Windows** | build from source / WSL | — |
 
-Tweak the install: `PGTUI_INSTALL_DIR="$HOME/.local/bin"` or `PGTUI_VERSION=v0.6.0`.
+Tweak the install: `PGTUI_INSTALL_DIR="$HOME/.local/bin"` or `PGTUI_VERSION=vX.Y.Z`.
 Prefer to read before you pipe to a shell? It's just [`install.sh`](install.sh).
 Prebuilt binaries are also attached to each
 [GitHub Release](https://github.com/9level/pgtui/releases).
@@ -146,8 +146,7 @@ refresh_seconds: 5
 # update_check: true        # startup "newer release available" prompt
 ```
 
-Prefer environment variables or a `.env` file? They still work and **override**
-the file:
+Prefer environment variables? They still work and **override** the file:
 
 ```bash
 export DATABASE_URL='postgres://USER:PASSWORD@HOST:5432/postgres?sslmode=disable'
@@ -159,7 +158,7 @@ export DATABASE_URL='postgres://USER:PASSWORD@HOST:5432/postgres?sslmode=disable
   run a query against a different target (switch it with `/`).
 - Standard `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`/`PGSSLMODE`
   variables are used if neither `DATABASE_URL` nor `database_url` is set.
-- Precedence: environment (incl. a `.env`) > `config.yml` > defaults.
+- Precedence: environment variables > `config.yml` > defaults.
 - Search locations: `PGTUI_CONFIG` (an explicit file) or `PGTUI_CONFIG_DIR`
   override the search; otherwise `./`, the binary's directory, `~/.config/pgtui/`,
   `/opt/pgtui/`, `/etc/pgtui/` (first hit wins).
@@ -272,8 +271,8 @@ log to a file: `PGTUI_DEBUG=/tmp/pgtui.log ./pgtui`.
 ## Distribution & releases
 
 ```bash
-make build-all VERSION=v0.6.0   # cross-compile to dist/ (linux/darwin, amd64/arm64)
-make release VERSION=v0.6.0     # validate semver + clean tree, tag, push
+make build-all VERSION=vX.Y.Z   # cross-compile to dist/ (linux/darwin, amd64/arm64)
+make release VERSION=vX.Y.Z     # validate semver + clean tree, tag, push
 ```
 
 Pushing a `v*.*.*` tag runs the CI (`.github/workflows/ci.yml`): tests, then
