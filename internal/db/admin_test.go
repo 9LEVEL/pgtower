@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/9level/pg-tui/internal/db"
+	"github.com/9level/pgtui/internal/db"
 )
 
 func TestBuilders(t *testing.T) {

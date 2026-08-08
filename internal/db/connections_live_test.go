@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/9level/pg-tui/internal/db"
+	"github.com/9level/pgtui/internal/db"
 )
 
 // TestConnLimitAndDiagnosticsLive proves the CONNECTION LIMIT builders apply and

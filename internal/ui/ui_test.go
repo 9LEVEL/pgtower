@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/9level/pg-tui/internal/config"
-	"github.com/9level/pg-tui/internal/db"
+	"github.com/9level/pgtui/internal/config"
+	"github.com/9level/pgtui/internal/db"
 )
 
 func TestPgErrorText(t *testing.T) {

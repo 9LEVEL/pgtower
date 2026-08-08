@@ -13,9 +13,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/9level/pg-tui/internal/config"
-	"github.com/9level/pg-tui/internal/db"
-	"github.com/9level/pg-tui/internal/ui"
+	"github.com/9level/pgtui/internal/config"
+	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtui/internal/ui"
 )
 
 // version is injected at build time via -ldflags "-X main.version=vX.Y.Z".

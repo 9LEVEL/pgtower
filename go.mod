@@ -1,4 +1,4 @@
-module github.com/9level/pg-tui
+module github.com/9level/pgtui
 
 go 1.26
 

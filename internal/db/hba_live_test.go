@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/9level/pg-tui/internal/db"
+	"github.com/9level/pgtui/internal/db"
 )
 
 // TestListHBARulesLive reads the parsed pg_hba rules and the file path from a

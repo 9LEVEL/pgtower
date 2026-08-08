@@ -1,5 +1,5 @@
 BINARY  := pgtui
-PKG     := github.com/9level/pg-tui
+PKG     := github.com/9level/pgtui
 GO      := go
 VERSION ?= dev
 LDFLAGS := -s -w -X main.version=$(VERSION)
