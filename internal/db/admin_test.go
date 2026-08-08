@@ -432,3 +432,289 @@ func hasDB(ds []db.Database, name string) bool {
 	}
 	return false
 }
+
+func TestBuildAlterRoleAttrs(t *testing.T) {
+	all := db.RoleAttrs{Login: true, CreateDB: true, CreateRole: true,
+		Superuser: true, Replication: true, BypassRLS: true}
+	none := db.RoleAttrs{}
+
+	// Nothing changed: no statement at all, so the caller never runs an ALTER
+	// ROLE that needs privileges it does not have.
+	if got := db.BuildAlterRoleAttrs("app", all, all); got != "" {
+		t.Errorf("no-op = %q, want empty", got)
+	}
+
+	// Only the differences are emitted. This is the gap that made an attribute
+	// impossible to remove once set: there was no ALTER ROLE path at all.
+	if got := db.BuildAlterRoleAttrs("app", db.RoleAttrs{Login: true, CreateDB: true},
+		db.RoleAttrs{Login: true}); got != `ALTER ROLE "app" NOCREATEDB` {
+		t.Errorf("drop createdb = %q", got)
+	}
+
+	if got := db.BuildAlterRoleAttrs(`we"ird`, none, all); got !=
+		`ALTER ROLE "we""ird" LOGIN CREATEDB CREATEROLE SUPERUSER REPLICATION BYPASSRLS` {
+		t.Errorf("turn everything on = %q", got)
+	}
+	if got := db.BuildAlterRoleAttrs("app", all, none); got !=
+		`ALTER ROLE "app" NOLOGIN NOCREATEDB NOCREATEROLE NOSUPERUSER NOREPLICATION NOBYPASSRLS` {
+		t.Errorf("turn everything off = %q", got)
+	}
+}
+
+func TestRoleAttrsEscalates(t *testing.T) {
+	none := db.RoleAttrs{}
+
+	for _, c := range []struct {
+		name string
+		to   db.RoleAttrs
+		want bool
+	}{
+		{"superuser", db.RoleAttrs{Superuser: true}, true},
+		{"bypassrls", db.RoleAttrs{BypassRLS: true}, true},
+		{"createdb is not escalation", db.RoleAttrs{CreateDB: true}, false},
+		{"login is not escalation", db.RoleAttrs{Login: true}, false},
+	} {
+		if got := c.to.Escalates(none); got != c.want {
+			t.Errorf("%s: Escalates = %v, want %v", c.name, got, c.want)
+		}
+	}
+
+	// Turning an attribute OFF is never escalation, otherwise the UI would ask
+	// for a typed confirmation to make a role safer.
+	privileged := db.RoleAttrs{Superuser: true, BypassRLS: true}
+	if none.Escalates(privileged) {
+		t.Error("dropping superuser/bypassrls counted as escalation")
+	}
+}
+
+func TestBuildRevoke(t *testing.T) {
+	tgt, stmts := db.BuildRevoke(db.GrantConnect, "app_db", "app")
+	if tgt != "" || len(stmts) != 1 || stmts[0] != `REVOKE CONNECT ON DATABASE "app_db" FROM "app"` {
+		t.Errorf("revoke connect = %q %v", tgt, stmts)
+	}
+
+	// Ownership is a transfer, not a privilege: there is nothing to revoke.
+	if _, stmts := db.BuildRevoke(db.GrantOwner, "app_db", "app"); len(stmts) != 0 {
+		t.Errorf("revoke owner should be a no-op, got %v", stmts)
+	}
+	if db.GrantOwner.Revocable() {
+		t.Error("GrantOwner reported as revocable")
+	}
+
+	// ⚠ The default privileges must be undone too. Without it the revoke looks
+	// like it worked and the role keeps access to every table created later.
+	tgt, stmts = db.BuildRevoke(db.GrantSchemaAll, "app_db", "app")
+	if tgt != "app_db" {
+		t.Errorf("revoke schema targetDB = %q, want app_db", tgt)
+	}
+	var sawDefaults bool
+	for _, s := range stmts {
+		if strings.Contains(s, "ALTER DEFAULT PRIVILEGES") && strings.Contains(s, "REVOKE") {
+			sawDefaults = true
+		}
+	}
+	if !sawDefaults {
+		t.Errorf("revoke schema does not undo ALTER DEFAULT PRIVILEGES: %v", stmts)
+	}
+}
+
+func TestBuildGrantReadWriteHasNoDDL(t *testing.T) {
+	tgt, stmts := db.BuildGrant(db.GrantSchemaReadWrite, "app_db", "app")
+	if tgt != "app_db" || len(stmts) == 0 {
+		t.Fatalf("read/write grant = %q %v", tgt, stmts)
+	}
+
+	// The whole point of the preset: an application role that reaches the data
+	// and never the schema. "GRANT ALL" here would silently include DDL.
+	for _, s := range stmts {
+		if strings.Contains(s, "GRANT ALL") {
+			t.Errorf("read/write preset grants ALL: %q", s)
+		}
+	}
+	joined := strings.Join(stmts, "\n")
+	for _, want := range []string{
+		"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES",
+		"GRANT USAGE, SELECT ON ALL SEQUENCES",
+		"ALTER DEFAULT PRIVILEGES",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("read/write preset missing %q in:\n%s", want, joined)
+		}
+	}
+}
+
+// TestRoleAttributesRoundtripLive is the cycle that had no way back before:
+// give a role an attribute, then take it away. Until ALTER ROLE existed here,
+// the only way to undo CREATEDB was to drop the role.
+//
+// It also checks that BYPASSRLS is read back, because a listing that cannot show
+// it lets a role that defeats row-level security hide in plain sight.
+func TestRoleAttributesRoundtripLive(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mgr, err := db.NewManager(ctx, dsn, "postgres")
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	defer mgr.Close()
+	p, err := mgr.Pool(ctx, "postgres")
+	if err != nil {
+		t.Fatalf("Pool: %v", err)
+	}
+
+	const role = "pgtui_attrs_selftest"
+	cleanup := func() { _, _ = db.ExecAdmin(ctx, p, "DROP ROLE IF EXISTS "+db.QuoteIdent(role)) }
+	cleanup()
+	defer cleanup()
+
+	find := func() db.Role {
+		t.Helper()
+		roles, err := db.ListRoles(ctx, p)
+		if err != nil {
+			t.Fatalf("ListRoles: %v", err)
+		}
+		for _, r := range roles {
+			if r.Name == role {
+				return r
+			}
+		}
+		t.Fatalf("role %s not listed", role)
+		return db.Role{}
+	}
+
+	if _, err := db.ExecAdmin(ctx, p, db.BuildCreateRole(role, "s3cr3t", true, true, false)); err != nil {
+		t.Fatalf("CREATE ROLE: %v", err)
+	}
+	created := find()
+	if !created.CreateDB {
+		t.Fatal("role was created without CREATEDB; the rest of the test proves nothing")
+	}
+	if created.BypassRLS {
+		t.Error("a freshly created role should not have BYPASSRLS")
+	}
+
+	// Take CREATEDB away — the operation that previously had no path.
+	want := created.Attrs()
+	want.CreateDB = false
+	sql := db.BuildAlterRoleAttrs(role, created.Attrs(), want)
+	if sql == "" {
+		t.Fatal("BuildAlterRoleAttrs produced no statement for a real change")
+	}
+	if _, err := db.ExecAdmin(ctx, p, sql); err != nil {
+		t.Fatalf("%s: %v", sql, err)
+	}
+	if find().CreateDB {
+		t.Error("CREATEDB survived the ALTER ROLE")
+	}
+
+	// And BYPASSRLS round-trips, which is what the new column reports.
+	on := want
+	on.BypassRLS = true
+	if _, err := db.ExecAdmin(ctx, p, db.BuildAlterRoleAttrs(role, want, on)); err != nil {
+		t.Fatalf("grant BYPASSRLS: %v", err)
+	}
+	if !find().BypassRLS {
+		t.Fatal("BYPASSRLS was set but ListRoles reports it off")
+	}
+	if _, err := db.ExecAdmin(ctx, p, db.BuildAlterRoleAttrs(role, on, want)); err != nil {
+		t.Fatalf("revoke BYPASSRLS: %v", err)
+	}
+	if find().BypassRLS {
+		t.Error("BYPASSRLS survived the ALTER ROLE")
+	}
+}
+
+// TestRevokeRoundtripLive grants the read/write preset and takes it back,
+// including the default privileges. Revoking the tables but leaving the
+// defaults behind is the failure that looks like success.
+func TestRevokeRoundtripLive(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	mgr, err := db.NewManager(ctx, dsn, "postgres")
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	defer mgr.Close()
+	admin, err := mgr.Pool(ctx, "postgres")
+	if err != nil {
+		t.Fatalf("Pool: %v", err)
+	}
+
+	const role = "pgtui_revoke_selftest"
+	const database = "pgtui_revoke_selftest_db"
+	cleanup := func() {
+		_, _ = db.ExecAdmin(ctx, admin, "DROP DATABASE IF EXISTS "+db.QuoteIdent(database))
+		_, _ = db.ExecAdmin(ctx, admin, "DROP ROLE IF EXISTS "+db.QuoteIdent(role))
+	}
+	cleanup()
+	defer cleanup()
+
+	if _, err := db.ExecAdmin(ctx, admin, db.BuildCreateRole(role, "s3cr3t", true, false, false)); err != nil {
+		t.Fatalf("CREATE ROLE: %v", err)
+	}
+	if _, err := db.ExecAdmin(ctx, admin, db.BuildCreateDatabase(database, "postgres")); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+
+	target, err := mgr.Pool(ctx, database)
+	if err != nil {
+		t.Fatalf("Pool(%s): %v", database, err)
+	}
+	if _, err := db.ExecAdmin(ctx, target, "CREATE TABLE t_before (id int)"); err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+
+	run := func(p db.Pinger, stmts []string) {
+		t.Helper()
+		for _, s := range stmts {
+			if _, err := db.ExecAdmin(ctx, p, s); err != nil {
+				t.Fatalf("%s: %v", s, err)
+			}
+		}
+	}
+
+	_, stmts := db.BuildGrant(db.GrantSchemaReadWrite, database, role)
+	run(target, stmts)
+
+	// A table created AFTER the grant is the one the default privileges cover.
+	if _, err := db.ExecAdmin(ctx, target, "CREATE TABLE t_after (id int)"); err != nil {
+		t.Fatalf("CREATE TABLE after grant: %v", err)
+	}
+
+	granted := func(tbl string) bool {
+		t.Helper()
+		var ok bool
+		row := target.QueryRow(ctx, "select has_table_privilege($1, $2, 'SELECT')", role, tbl)
+		if err := row.Scan(&ok); err != nil {
+			t.Fatalf("has_table_privilege(%s): %v", tbl, err)
+		}
+		return ok
+	}
+	if !granted("t_before") || !granted("t_after") {
+		t.Fatalf("grant did not reach the tables (before=%v after=%v); the revoke test would prove nothing",
+			granted("t_before"), granted("t_after"))
+	}
+
+	_, stmts = db.BuildRevoke(db.GrantSchemaReadWrite, database, role)
+	run(target, stmts)
+
+	if granted("t_before") {
+		t.Error("revoke left privileges on an existing table")
+	}
+	if _, err := db.ExecAdmin(ctx, target, "CREATE TABLE t_later (id int)"); err != nil {
+		t.Fatalf("CREATE TABLE after revoke: %v", err)
+	}
+	if granted("t_later") {
+		t.Error("revoke did not undo ALTER DEFAULT PRIVILEGES: new tables are still granted")
+	}
+}

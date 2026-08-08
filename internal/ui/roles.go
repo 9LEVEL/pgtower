@@ -19,6 +19,8 @@ const (
 	formGrant
 	formForceDrop
 	formConnLimit
+	formAlterAttrs
+	formRevoke
 )
 
 // confirm kinds distinguish which pending action the shared confirm modal is
@@ -27,17 +29,20 @@ const (
 	confirmNoneKind = iota
 	confirmDropRole
 	confirmResetPwd
+	confirmEscalate
 )
 
 // role actions offered by the "Enter → manage" menu (indexes into roleMenuItems).
 const (
 	menuResetPassword = iota
 	menuSetConnLimit
+	menuEditAttrs
 )
 
 var roleMenuItems = []string{
 	"Reset password (generate random)",
 	"Set connection limit",
+	"Edit attributes (LOGIN, SUPERUSER, BYPASSRLS…)",
 }
 
 // newPasswordLen is the length of a generated password (letters + digits).
@@ -63,6 +68,8 @@ type rolesView struct {
 	pendingForceRole string
 	pendingPwdRole   string
 	pendingLimitRole string
+	pendingAttrsRole string
+	pendingAttrsSQL  string
 	newPassword      string
 	pwdIterations    int
 
@@ -97,11 +104,12 @@ func (v *rolesView) SetSize(w, h int) {
 		th = 3
 	}
 	v.tbl.SetHeight(th)
-	nameW := clampInt(w-64, 16, 40)
+	nameW := clampInt(w-76, 16, 40)
 	v.tbl.SetColumns([]table.Column{
 		{Title: "ROLE", Width: nameW},
 		{Title: "LOGIN", Width: 6},
-		{Title: "SUPER", Width: 6},
+		{Title: "SUPER", Width: 7},
+		{Title: "BYPASSRLS", Width: 10},
 		{Title: "CREATEDB", Width: 9},
 		{Title: "CREATEROLE", Width: 11},
 		{Title: "CONN", Width: 5},
@@ -119,7 +127,8 @@ func (v *rolesView) Update(msg tea.Msg) tea.Cmd {
 			rows := make([]table.Row, 0, len(msg.rows))
 			for _, r := range msg.rows {
 				rows = append(rows, table.Row{
-					r.Name, yesno(r.CanLogin), yesno(r.Super), yesno(r.CreateDB), yesno(r.CreateRole),
+					r.Name, yesno(r.CanLogin), flagged(r.Super), flagged(r.BypassRLS),
+					yesno(r.CreateDB), yesno(r.CreateRole),
 					connLimitStr(r.ConnLimit), r.MemberOf,
 				})
 			}
@@ -221,6 +230,8 @@ func (v *rolesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return v.openCreateForm()
 	case "g":
 		return v.openGrantForm()
+	case "R":
+		return v.openRevokeForm()
 	case "D":
 		return v.askDropRole()
 	case "F":
@@ -260,16 +271,86 @@ func (v *rolesView) openGrantForm() tea.Cmd {
 		v.status = stWarnV.Render("database list not loaded yet")
 		return nil
 	}
+	labels := make([]string, len(grantScopes))
+	for i, sc := range grantScopes {
+		labels[i] = sc.Label()
+	}
 	v.formKind = formGrant
 	return v.form.open("Grant · to "+role.Name, []formField{
 		selectField("database", "Database", v.dbNames),
-		selectField("scope", "Privilege", []string{
-			db.GrantConnect.Label(),
-			db.GrantAllDatabase.Label(),
-			db.GrantSchemaAll.Label(),
-			db.GrantOwner.Label(),
-		}),
+		selectField("scope", "Privilege", labels),
 	})
+}
+
+// grantScopes maps the privilege select in the grant form to its scope, in the
+// order the options are listed. Revoke uses the same order minus ownership.
+var grantScopes = []db.GrantScope{
+	db.GrantConnect, db.GrantAllDatabase, db.GrantSchemaReadWrite, db.GrantSchemaAll, db.GrantOwner,
+}
+
+// revokeScopes is derived from grantScopes so the two menus can never drift:
+// a scope added to one shows up in the other unless it has no REVOKE at all.
+var revokeScopes = revocable(grantScopes)
+
+func revocable(scopes []db.GrantScope) []db.GrantScope {
+	out := make([]db.GrantScope, 0, len(scopes))
+	for _, s := range scopes {
+		if s.Revocable() {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func (v *rolesView) openRevokeForm() tea.Cmd {
+	role, ok := v.selectedRole()
+	if !ok {
+		v.status = stWarnV.Render("select a role first")
+		return nil
+	}
+	if len(v.dbNames) == 0 {
+		v.status = stWarnV.Render("database list not loaded yet")
+		return nil
+	}
+	labels := make([]string, len(revokeScopes))
+	for i, sc := range revokeScopes {
+		labels[i] = sc.Label()
+	}
+	v.formKind = formRevoke
+	return v.form.open("Revoke · from "+role.Name, []formField{
+		selectField("database", "Database", v.dbNames),
+		selectField("scope", "Privilege", labels),
+	})
+}
+
+// openAttrsForm edits the role attributes, pre-filled with the current values so
+// the operator sees the starting state instead of guessing it.
+func (v *rolesView) openAttrsForm() tea.Cmd {
+	role, ok := v.selectedRole()
+	if !ok {
+		v.menu.close()
+		return nil
+	}
+	v.menu.close()
+	v.pendingAttrsRole = role.Name
+	v.formKind = formAlterAttrs
+	return v.form.open("Attributes · "+role.Name, []formField{
+		boolField("login", "LOGIN", role.CanLogin),
+		boolField("createdb", "CREATEDB", role.CreateDB),
+		boolField("createrole", "CREATEROLE", role.CreateRole),
+		boolField("superuser", "SUPERUSER", role.Super),
+		boolField("replication", "REPLICATION", role.Replication),
+		boolField("bypassrls", "BYPASSRLS", role.BypassRLS),
+	})
+}
+
+// boolField is a yes/no select already positioned on the current value.
+func boolField(key, label string, on bool) formField {
+	f := selectField(key, label, []string{"no", "yes"})
+	if on {
+		f.sel = 1
+	}
+	return f
 }
 
 func (v *rolesView) openForceDropForm() tea.Cmd {
@@ -334,6 +415,8 @@ func (v *rolesView) runMenuAction(idx int) tea.Cmd {
 		return v.askResetPassword()
 	case menuSetConnLimit:
 		return v.openConnLimitForm()
+	case menuEditAttrs:
+		return v.openAttrsForm()
 	}
 	return nil
 }
@@ -375,6 +458,11 @@ func (v *rolesView) onConfirmYes() tea.Cmd {
 	kind := v.confirmKind
 	v.confirmKind = confirmNoneKind
 	switch kind {
+	case confirmEscalate:
+		sql := v.pendingAttrsSQL
+		v.pendingAttrsSQL = ""
+		return execStatements(v.mgr, "", "alter role "+v.pendingAttrsRole, []string{sql})
+
 	case confirmResetPwd:
 		role := v.pendingPwdRole
 		pwd, err := db.GeneratePassword(newPasswordLen)
@@ -442,11 +530,68 @@ func (v *rolesView) submitForm() tea.Cmd {
 		}
 		_, database := v.form.selected("database")
 		scopeIdx, _ := v.form.selected("scope")
-		scope := []db.GrantScope{db.GrantConnect, db.GrantAllDatabase, db.GrantSchemaAll, db.GrantOwner}[scopeIdx]
-		targetDB, stmts := db.BuildGrant(scope, database, role.Name)
+		targetDB, stmts := db.BuildGrant(grantScopes[scopeIdx], database, role.Name)
 		v.form.close()
 		v.formKind = formNoneKind
 		return execStatements(v.mgr, targetDB, fmt.Sprintf("grant %s → %s", role.Name, database), stmts)
+
+	case formRevoke:
+		role, ok := v.selectedRole()
+		if !ok {
+			v.form.close()
+			v.formKind = formNoneKind
+			return nil
+		}
+		_, database := v.form.selected("database")
+		scopeIdx, _ := v.form.selected("scope")
+		targetDB, stmts := db.BuildRevoke(revokeScopes[scopeIdx], database, role.Name)
+		v.form.close()
+		v.formKind = formNoneKind
+		return execStatements(v.mgr, targetDB, fmt.Sprintf("revoke %s → %s", role.Name, database), stmts)
+
+	case formAlterAttrs:
+		role, ok := v.selectedRole()
+		if !ok || role.Name != v.pendingAttrsRole {
+			v.form.close()
+			v.formKind = formNoneKind
+			v.status = stWarnV.Render("selection changed — reopen the form")
+			return nil
+		}
+		// selected(), not value(): a select field keeps its choice in `sel`, and
+		// value() reads the (empty) text input. Reading the wrong one made every
+		// attribute look like "no", which turns an untouched form into an
+		// ALTER ROLE that switches everything off.
+		on := func(key string) bool {
+			_, v := v.form.selected(key)
+			return v == "yes"
+		}
+		want := db.RoleAttrs{
+			Login:       on("login"),
+			CreateDB:    on("createdb"),
+			CreateRole:  on("createrole"),
+			Superuser:   on("superuser"),
+			Replication: on("replication"),
+			BypassRLS:   on("bypassrls"),
+		}
+		have := role.Attrs()
+		sql := db.BuildAlterRoleAttrs(role.Name, have, want)
+		v.form.close()
+		v.formKind = formNoneKind
+		if sql == "" {
+			v.status = stStatus.Render("nothing changed")
+			return nil
+		}
+		// Turning on SUPERUSER or BYPASSRLS hands the role every row of every
+		// table, RLS included. It is guarded like a drop: type the exact name.
+		if want.Escalates(have) {
+			v.pendingAttrsSQL = sql
+			v.confirmKind = confirmEscalate
+			body := fmt.Sprintf("%s will be able to read and write every row of every table,\n"+
+				"ignoring row-level security.\n\n%s\n\nType the role name to confirm:",
+				stBadV.Render(role.Name), stLabel.Render(sql))
+			return v.confirm.askCritical("⚠  PRIVILEGE ESCALATION", body, role.Name)
+		}
+		return execStatements(v.mgr, "", "alter role "+role.Name, []string{sql})
 
 	case formForceDrop:
 		successor := strings.TrimSpace(v.form.value("successor"))
@@ -486,7 +631,8 @@ func (v *rolesView) submitForm() tea.Cmd {
 
 func (v *rolesView) FooterHints() string {
 	return hint("enter", "manage") + "  " + hint("/", "find") + "  " + hint("n", "create") + "  " +
-		hint("g", "grant") + "  " + hint("D", "drop") + "  " + hint("F", "force-drop") + "  " + hint("r", "refresh")
+		hint("g", "grant") + "  " + hint("R", "revoke") + "  " + hint("D", "drop") + "  " +
+		hint("F", "force-drop") + "  " + hint("r", "refresh")
 }
 
 func (v *rolesView) View() string {
@@ -523,6 +669,17 @@ func (v *rolesView) View() string {
 func yesno(b bool) string {
 	if b {
 		return "yes"
+	}
+	return "·"
+}
+
+// flagged renders an attribute that defeats row-level security. SUPERUSER and
+// BYPASSRLS both let a role read every tenant's rows, and on a database whose
+// isolation rests on RLS that is the one thing an operator must not overlook in
+// a list of thirty roles.
+func flagged(b bool) string {
+	if b {
+		return "⚠ yes"
 	}
 	return "·"
 }

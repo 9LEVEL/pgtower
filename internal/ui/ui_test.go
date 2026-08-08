@@ -776,3 +776,76 @@ func assertContains(t *testing.T, s string, subs ...string) {
 		}
 	}
 }
+
+// TestRolesAttributesFlow drives the attribute editor and the guard that stands
+// between an operator and an accidental privilege escalation.
+func TestRolesAttributesFlow(t *testing.T) {
+	v := newRolesView(&config.Config{}, nil)
+	v.SetSize(140, 40)
+	v.Update(rolesMsg{rows: []db.Role{
+		{Name: "app_user", CanLogin: true, CreateDB: true},
+		{Name: "auditor", CanLogin: true, BypassRLS: true},
+	}})
+
+	// The listing has to expose BYPASSRLS, and mark it: a role that defeats
+	// row-level security must not read like an ordinary one.
+	assertContains(t, v.View(), "BYPASSRLS", "⚠ yes")
+
+	v.Update(key("enter")) // manage menu
+	v.Update(key("down"))
+	v.Update(key("down")) // "Edit attributes"
+	v.Update(key("enter"))
+	assertContains(t, v.View(), "Attributes", "app_user", "CREATEDB", "BYPASSRLS")
+
+	// Submitting untouched must not produce a statement.
+	v.Update(key("enter"))
+	if v.form.active {
+		t.Error("form should close after submit")
+	}
+	assertContains(t, v.View(), "nothing changed")
+}
+
+// TestRolesEscalationIsGuarded is the important one: turning SUPERUSER on must
+// stop at a typed confirmation, like a drop does, instead of running straight
+// away.
+func TestRolesEscalationIsGuarded(t *testing.T) {
+	v := newRolesView(&config.Config{}, nil)
+	v.SetSize(140, 40)
+	v.Update(rolesMsg{rows: []db.Role{{Name: "app_user", CanLogin: true}}})
+
+	v.Update(key("enter"))
+	v.Update(key("down"))
+	v.Update(key("down"))
+	v.Update(key("enter")) // attributes form
+
+	// Move to SUPERUSER (4th field) and switch it to "yes".
+	for i := 0; i < 3; i++ {
+		v.Update(key("down"))
+	}
+	v.Update(key("right"))
+	v.Update(key("enter")) // submit
+
+	if !v.confirm.active {
+		t.Fatal("enabling SUPERUSER ran without asking; it must be guarded like a drop")
+	}
+	assertContains(t, v.View(), "PRIVILEGE ESCALATION", "app_user", "SUPERUSER")
+	if v.pendingAttrsSQL == "" {
+		t.Error("no statement held for the confirmation")
+	}
+}
+
+// TestRolesRevokeFormOffersNoOwnership: ownership is a transfer, not a
+// privilege, so it must not appear in a revoke menu that cannot undo it.
+func TestRolesRevokeFormOffersNoOwnership(t *testing.T) {
+	v := newRolesView(&config.Config{}, nil)
+	v.SetSize(140, 40)
+	v.Update(rolesMsg{rows: []db.Role{{Name: "app_user", CanLogin: true}}})
+	v.Update(databasesMsg{rows: []db.Database{{Name: "app_db"}}})
+
+	v.Update(key("R"))
+	view := v.View()
+	assertContains(t, view, "Revoke", "app_user", "app_db")
+	if strings.Contains(view, db.GrantOwner.Label()) {
+		t.Errorf("revoke form offers ownership, which it cannot undo:\n%s", view)
+	}
+}
