@@ -52,11 +52,11 @@ superuser (see [Permissions](#permissions)).
 | Tab | What it does |
 |-----|--------------|
 | **1 · Dashboard** | Cluster health: connections vs `max_connections` (with reserved slots), cache hit ratio, uptime, total size, commits/rollbacks, version, longest active query, replication. A **connection advisor** flags near-limit/idle-dominated/idle-in-transaction situations and tells you what to do. Auto-refresh. |
-| **2 · Databases** | Databases (owner, size, connections) → tables → **read-only data browser** (horizontal column scroll `←→`, per-column search `/`, top query bar `e`). Create (`n`) / drop (`D`) databases and `d` for a table's structure (columns, indexes, constraints). |
+| **2 · Databases** | Databases (owner, size, connections) → tables → **read-only data browser** (horizontal column scroll `←→`, per-column search `/`, top query bar `e`). Create (`n`) / drop (`D`) databases, `d` for a table's structure (columns, indexes, constraints), and `/` for a **fuzzy quick-find** in the database/table list. |
 | **3 · Query** | SQL editor with a paged result grid. `x` runs **EXPLAIN** (plan only). Writes require confirmation; destructive statements (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` without `WHERE`) require typing `yes`. |
 | **4 · Locks** | Blocking tree: which session waits on which. |
-| **5 · Sessions** | `pg_stat_activity` with state/wait/duration/query. `c` cancels the query, `k` terminates the connection. |
-| **6 · Roles** | Roles with login/super/createdb attributes and their connection limit (`CONN`, ∞ = unlimited). `enter` **manage** the selected role (reset password — generates a random 32-char one, shown once; or set the connection limit), `n` create, `g` grant to a database, `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss). |
+| **5 · Sessions** | `pg_stat_activity` with state/wait/duration/query. `c` cancels the query, `k` terminates the connection, `/` **fuzzy quick-find** (by PID, user, database, state or query text). |
+| **6 · Roles** | Roles with login/super/createdb attributes and their connection limit (`CONN`, ∞ = unlimited). `enter` **manage** the selected role (reset password — generates a random 32-char one, shown once; or set the connection limit), `n` create, `g` grant to a database, `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss), `/` **fuzzy quick-find** by name. |
 | **7 · Tuning** | Config sections (switch with `a` / `s` / `h`): a read-only **configuration advisor** (`shared_buffers`, `effective_cache_size`, `work_mem`, `maintenance_work_mem`, `max_connections` — current vs recommended with a verdict; concrete targets need `PGTUI_HOST_RAM_MB` / `PGTUI_HOST_CPUS`); an **ALTER SYSTEM editor** (`enter` edit / `x` reset any GUC — validated against type & bounds, applied with `pg_reload_conf`, `/` filters, restart-required settings are flagged); and a **pg_hba editor** (`pg_hba_file_rules` with parse-error flags; `n`/`e`/`d` add/edit/delete a rule — superuser only, each write is backed up, validated, reloaded and **auto-rolled-back if admin login breaks**). `r` refresh. |
 
 ## Install
@@ -99,21 +99,58 @@ export DATABASE_URL='postgres://user:pass@host:5432/postgres?sslmode=disable'
 pgtui        # opens on the Dashboard — press ? for shortcuts, q to quit
 ```
 
-## Configuration
+## Upgrading
 
-pgtui reads a `.env` file from the working directory (or next to the binary):
+pgtui checks GitHub for a newer release **on startup** and, if there is one,
+asks what to do:
+
+- **Update now** — downloads the right binary for your OS/arch, verifies its
+  SHA-256 and replaces the running binary **in place**. If the install directory
+  needs root (e.g. `/usr/local/bin`), it shows the exact command to finish.
+  Restart pgtui afterwards.
+- **Not now** — dismiss for this run.
+- **Never suggest again** — stop asking for good (a marker in your config dir);
+  re-enable with `update_check: true` in `config.yml`.
+
+Disable the check entirely with `update_check: false` (config.yml) or
+`PGTUI_UPDATE_CHECK=0`. Source/dev builds are never nagged.
+
+### Lazy upgrade (one line)
+
+Don't want the prompt at all? Just re-run the installer — it always grabs the
+**latest** release, verifies the checksum and replaces your binary (your
+`config.yml` is left untouched):
 
 ```bash
-cp .env.example .env
-$EDITOR .env
+curl -fsSL https://raw.githubusercontent.com/9level/pgtui/master/install.sh | sh
 ```
 
-```dotenv
-DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/postgres?sslmode=disable
-PGTUI_REFRESH_SECONDS=5
-# PGTUI_SCRAM_ITERATIONS=15000   # PBKDF2 rounds for password-reset hashing
-# PGTUI_HOST_RAM_MB=8192         # host RAM for the Tuning advisor
-# PGTUI_HOST_CPUS=4              # host cores for the Tuning advisor
+Pin a version with `PGTUI_VERSION=vX.Y.Z`. Installed from source instead?
+`cd pgtui && git pull && make install`.
+
+## Configuration
+
+pgtui is configured, in order of precedence, by **environment variables** → a
+**`config.yml`** file → built-in defaults. The installer creates
+`/opt/pgtui/config.yml` for you; you can also drop one next to the binary, in
+`~/.config/pgtui/`, or the working directory (full template:
+[`config.yml.example`](config.yml.example)).
+
+```yaml
+# /opt/pgtui/config.yml
+database_url: "postgres://USER:PASSWORD@HOST:5432/postgres?sslmode=disable"
+refresh_seconds: 5
+# scram_iterations: 15000   # PBKDF2 rounds for password-reset hashing
+# host_ram_mb: 8192         # host RAM for the Tuning advisor
+# host_cpus: 4              # host cores for the Tuning advisor
+# update_check: true        # startup "newer release available" prompt
+```
+
+Prefer environment variables or a `.env` file? They still work and **override**
+the file:
+
+```bash
+export DATABASE_URL='postgres://USER:PASSWORD@HOST:5432/postgres?sslmode=disable'
 ```
 
 - The database in the URL is the **admin db** — where cluster-level queries run
@@ -121,8 +158,11 @@ PGTUI_REFRESH_SECONDS=5
   additional connections on demand when you browse another database's tables or
   run a query against a different target (switch it with `/`).
 - Standard `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`/`PGSSLMODE`
-  variables are used if `DATABASE_URL` is unset.
-- Environment variables take precedence over `.env`.
+  variables are used if neither `DATABASE_URL` nor `database_url` is set.
+- Precedence: environment (incl. a `.env`) > `config.yml` > defaults.
+- Search locations: `PGTUI_CONFIG` (an explicit file) or `PGTUI_CONFIG_DIR`
+  override the search; otherwise `./`, the binary's directory, `~/.config/pgtui/`,
+  `/opt/pgtui/`, `/etc/pgtui/` (first hit wins).
 
 ### Permissions
 
@@ -150,6 +190,7 @@ Press `?` in the app for the full, scrollable list.
 | `q` / `ctrl+c` | quit |
 | **Databases** | |
 | `enter` | database → tables → read-only data |
+| `/` | fuzzy quick-find in the database / table list |
 | `d` | describe table (columns, types, indexes, constraints) |
 | `n` / `D` | create / drop database (drop asks for the name) |
 | **Table data** | |
@@ -162,9 +203,11 @@ Press `?` in the app for the full, scrollable list.
 | `x` | EXPLAIN (plan, without executing) |
 | `ctrl+r` / `f5` | run |
 | **Sessions** | |
+| `/` | fuzzy quick-find (PID, user, database, state, query) |
 | `c` | cancel the session's query (`pg_cancel_backend`) |
 | `k` | terminate the connection (`pg_terminate_backend`) |
 | **Roles** | |
+| `/` | fuzzy quick-find a role by name |
 | `enter` | manage role: reset password (random 32-char, shown once) / set connection limit |
 | `n` | create role/user |
 | `g` | grant to a database (CONNECT / ALL / owner / public schema) |

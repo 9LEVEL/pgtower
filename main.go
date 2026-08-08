@@ -28,8 +28,9 @@ func main() {
 			return
 		}
 		if a == "-h" || a == "--help" {
-			fmt.Println("usage: pgtui   (reads ./.env or PG*/DATABASE_URL variables)\n\n" +
-				"PostgreSQL administration TUI. Shortcuts: '?' inside the app.")
+			fmt.Println("usage: pgtui   (reads config.yml, .env or PG*/DATABASE_URL variables)\n\n" +
+				"PostgreSQL administration TUI. Config search: ./  the binary's dir  " +
+				"~/.config/pgtui/  /opt/pgtui/  /etc/pgtui/.\nShortcuts: '?' inside the app.")
 			return
 		}
 	}

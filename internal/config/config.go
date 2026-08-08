@@ -1,4 +1,6 @@
-// Package config loads the TUI configuration from the environment / .env.
+// Package config loads the TUI configuration from a config.yml file, a .env
+// file and the environment. Precedence, highest first: real environment
+// variables (incl. those a .env exported) > config.yml > built-in defaults.
 package config
 
 import (
@@ -6,10 +8,16 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/joho/godotenv"
+	"gopkg.in/yaml.v3"
 )
+
+// DefaultConfigDir is where the installer creates config.yml and where pgtui
+// looks for it when no more specific location has one.
+const DefaultConfigDir = "/opt/pgtui"
 
 // Config holds the connection parameters for the managed Postgres cluster.
 type Config struct {
@@ -39,23 +47,52 @@ type Config struct {
 	HostRAMMB int
 	HostCPUs  int
 
+	// UpdateCheck enables the startup "a newer release is available" prompt.
+	// Default true; set false in config.yml (update_check: false) or via
+	// PGTUI_UPDATE_CHECK=0 to disable it entirely.
+	UpdateCheck bool
+
 	// Version is the binary version (injected in main via -ldflags), shown
 	// in the header. Filled in by whoever builds the Config.
 	Version string
 }
 
-// Load looks for a .env file (in the current directory and next to the
-// executable), loads it into the environment and builds the Config. Variables
-// already present in the environment take precedence over the .env.
+// fileConfig mirrors config.yml. Pointer/zero values distinguish "unset" from
+// "set to the zero value" so the environment can still override.
+type fileConfig struct {
+	DatabaseURL     string `yaml:"database_url"`
+	Host            string `yaml:"host"`
+	Port            int    `yaml:"port"`
+	User            string `yaml:"user"`
+	Password        string `yaml:"password"`
+	Database        string `yaml:"database"`
+	SSLMode         string `yaml:"sslmode"`
+	RefreshSeconds  int    `yaml:"refresh_seconds"`
+	SCRAMIterations int    `yaml:"scram_iterations"`
+	HostRAMMB       int    `yaml:"host_ram_mb"`
+	HostCPUs        int    `yaml:"host_cpus"`
+	UpdateCheck     *bool  `yaml:"update_check"`
+}
+
+// Load reads .env + config.yml from the search directories, then builds the
+// Config with the environment taking precedence.
 func Load() (*Config, error) {
 	loadDotenv()
+	fc := loadFileConfig()
 
 	raw := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	if raw == "" {
-		raw = buildFromParts()
+		raw = strings.TrimSpace(fc.DatabaseURL)
 	}
 	if raw == "" {
-		return nil, errors.New("DATABASE_URL not set (nor PGHOST/PGUSER/...). Copy .env.example to .env and adjust it")
+		raw = buildFromParts() // PGHOST/PGUSER/... in the environment
+	}
+	if raw == "" {
+		raw = fc.dsn() // host/user/... from config.yml
+	}
+	if raw == "" {
+		return nil, errors.New("no connection configured: set DATABASE_URL (or PGHOST/PGUSER/...), " +
+			"or put database_url in config.yml (see " + DefaultConfigDir + "/config.yml)")
 	}
 
 	u, err := url.Parse(raw)
@@ -67,12 +104,10 @@ func Load() (*Config, error) {
 	if admin == "" {
 		admin = "postgres"
 	}
-
 	port := u.Port()
 	if port == "" {
 		port = "5432"
 	}
-
 	user := ""
 	if u.User != nil {
 		user = u.User.Username()
@@ -84,23 +119,103 @@ func Load() (*Config, error) {
 		Host:            u.Hostname(),
 		Port:            port,
 		User:            user,
-		RefreshSeconds:  envInt("PGTUI_REFRESH_SECONDS", 5),
-		SCRAMIterations: envInt("PGTUI_SCRAM_ITERATIONS", 0),
-		HostRAMMB:       envInt("PGTUI_HOST_RAM_MB", 0),
-		HostCPUs:        envInt("PGTUI_HOST_CPUS", 0),
+		RefreshSeconds:  pickInt("PGTUI_REFRESH_SECONDS", fc.RefreshSeconds, 5),
+		SCRAMIterations: pickInt("PGTUI_SCRAM_ITERATIONS", fc.SCRAMIterations, 0),
+		HostRAMMB:       pickInt("PGTUI_HOST_RAM_MB", fc.HostRAMMB, 0),
+		HostCPUs:        pickInt("PGTUI_HOST_CPUS", fc.HostCPUs, 0),
+		UpdateCheck:     pickBool("PGTUI_UPDATE_CHECK", fc.UpdateCheck, true),
 	}, nil
 }
 
-// loadDotenv loads .env from the working directory and next to the binary,
-// without overwriting already-exported variables.
-func loadDotenv() {
-	_ = godotenv.Load(".env")
+// configDirs lists where pgtui looks for config.yml / .env, highest priority
+// first. PGTUI_CONFIG_DIR (if set) wins, then the working directory, next to the
+// binary, the user config dir, and finally the system locations.
+func configDirs() []string {
+	var dirs []string
+	if d := strings.TrimSpace(os.Getenv("PGTUI_CONFIG_DIR")); d != "" {
+		dirs = append(dirs, d)
+	}
+	dirs = append(dirs, ".")
 	if exe, err := os.Executable(); err == nil {
-		dir := exe[:strings.LastIndex(exe, "/")+1]
-		if dir != "" {
-			_ = godotenv.Load(dir + ".env")
+		dirs = append(dirs, filepath.Dir(exe))
+	}
+	if home, err := os.UserConfigDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, "pgtui"))
+	}
+	dirs = append(dirs, DefaultConfigDir, "/etc/pgtui")
+	return dirs
+}
+
+// loadDotenv loads the first .env found across the search directories (and an
+// explicit PGTUI_ENV_FILE). godotenv never overwrites an already-exported
+// variable, so the real environment keeps precedence.
+func loadDotenv() {
+	if f := strings.TrimSpace(os.Getenv("PGTUI_ENV_FILE")); f != "" {
+		_ = godotenv.Load(f)
+	}
+	for _, dir := range configDirs() {
+		_ = godotenv.Load(filepath.Join(dir, ".env"))
+	}
+}
+
+// loadFileConfig reads the first config.yml found (or PGTUI_CONFIG, an explicit
+// path). A missing or unreadable file yields an empty config, never an error —
+// the environment/.env path still applies.
+func loadFileConfig() fileConfig {
+	var paths []string
+	if f := strings.TrimSpace(os.Getenv("PGTUI_CONFIG")); f != "" {
+		paths = append(paths, f)
+	}
+	for _, dir := range configDirs() {
+		paths = append(paths, filepath.Join(dir, "config.yml"), filepath.Join(dir, "config.yaml"))
+	}
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var fc fileConfig
+		if yaml.Unmarshal(b, &fc) == nil {
+			return fc
 		}
 	}
+	return fileConfig{}
+}
+
+// dsn builds a DSN from the individual host/user/... fields of config.yml.
+func (fc fileConfig) dsn() string {
+	host := strings.TrimSpace(fc.Host)
+	if host == "" {
+		return ""
+	}
+	port := fc.Port
+	if port == 0 {
+		port = 5432
+	}
+	user := fc.User
+	if user == "" {
+		user = "postgres"
+	}
+	db := fc.Database
+	if db == "" {
+		db = "postgres"
+	}
+	ssl := fc.SSLMode
+	if ssl == "" {
+		ssl = "disable"
+	}
+	userinfo := url.User(user)
+	if fc.Password != "" {
+		userinfo = url.UserPassword(user, fc.Password)
+	}
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     userinfo,
+		Host:     fmt.Sprintf("%s:%d", host, port),
+		Path:     "/" + db,
+		RawQuery: "sslmode=" + ssl,
+	}
+	return u.String()
 }
 
 func buildFromParts() string {
@@ -135,14 +250,32 @@ func envOr(key, def string) string {
 	return def
 }
 
-func envInt(key string, def int) int {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
+// pickInt resolves a positive integer setting: environment > config.yml > def.
+func pickInt(key string, fileVal, def int) int {
+	if v := os.Getenv(key); v != "" {
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+			return n
+		}
 	}
-	var n int
-	if _, err := fmt.Sscanf(v, "%d", &n); err != nil || n <= 0 {
-		return def
+	if fileVal > 0 {
+		return fileVal
 	}
-	return n
+	return def
+}
+
+// pickBool resolves a boolean setting: environment > config.yml > def.
+func pickBool(key string, fileVal *bool, def bool) bool {
+	if v := strings.TrimSpace(strings.ToLower(os.Getenv(key))); v != "" {
+		switch v {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
+		}
+	}
+	if fileVal != nil {
+		return *fileVal
+	}
+	return def
 }

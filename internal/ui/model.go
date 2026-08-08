@@ -10,6 +10,7 @@ import (
 
 	"github.com/9level/pgtui/internal/config"
 	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtui/internal/update"
 )
 
 // tabView is the contract for each TUI tab.
@@ -42,11 +43,18 @@ type Model struct {
 	status   string
 	fatalErr error
 	quitting bool
+
+	// update checker (startup "a newer release is available" prompt)
+	updateEnabled bool
+	updateLatest  string
+	updateMenu    actionMenu
+	updateAlert   alertModal
+	updating      bool
 }
 
 // New builds the root model with all tabs.
 func New(cfg *config.Config, mgr *db.Manager) *Model {
-	m := &Model{cfg: cfg, mgr: mgr, helpVP: viewport.New(60, 10)}
+	m := &Model{cfg: cfg, mgr: mgr, helpVP: viewport.New(60, 10), updateAlert: newAlertModal()}
 	m.tabs = []tabView{
 		newDashboardView(cfg, mgr),
 		newDatabasesView(mgr),
@@ -56,15 +64,20 @@ func New(cfg *config.Config, mgr *db.Manager) *Model {
 		newRolesView(cfg, mgr),
 		newTuningView(cfg, mgr),
 	}
+	// Only offer updates for real release builds the user hasn't opted out of.
+	m.updateEnabled = cfg.UpdateCheck && update.IsRelease(cfg.Version) && !update.OptedOut()
 	return m
 }
 
 func (m *Model) Init() tea.Cmd {
-	cmds := make([]tea.Cmd, 0, len(m.tabs))
+	cmds := make([]tea.Cmd, 0, len(m.tabs)+1)
 	for _, t := range m.tabs {
 		if c := t.Init(); c != nil {
 			cmds = append(cmds, c)
 		}
+	}
+	if m.updateEnabled {
+		cmds = append(cmds, checkUpdateCmd(m.cfg.Version))
 	}
 	return tea.Batch(cmds...)
 }
@@ -89,6 +102,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case statusMsg:
 		m.status = string(msg)
+		return m, nil
+
+	case updateCheckedMsg:
+		if msg.err == nil && update.IsNewer(msg.latest, m.cfg.Version) {
+			m.updateLatest = msg.latest
+			m.updateMenu.open("Update available · "+appVersion(m.cfg.Version)+" → "+msg.latest,
+				[]string{"Update now", "Not now", "Never suggest again"})
+		}
+		return m, nil
+
+	case updateResultMsg:
+		m.updating = false
+		if msg.ok {
+			m.updateAlert.show(m.width, m.height, "Update complete",
+				"Updated to "+m.updateLatest+".\n\nRestart pgtui to run the new version.", false)
+		} else {
+			m.updateAlert.show(m.width, m.height, "Update", msg.text, msg.danger)
+		}
 		return m, nil
 	}
 
@@ -120,6 +151,22 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyCtrlC {
 		m.quitting = true
 		return m, tea.Quit
+	}
+
+	// Update prompt (model-level modal) takes priority over everything but quit.
+	if m.updateAlert.active {
+		m.updateAlert.update(msg)
+		return m, nil
+	}
+	if m.updating {
+		return m, nil // ignore keys while the self-update runs
+	}
+	if m.updateMenu.active {
+		if m.updateMenu.update(msg) == menuSelect {
+			return m, m.handleUpdateChoice(m.updateMenu.cursor)
+		}
+		// esc/q closed the menu — treated as "not now".
+		return m, nil
 	}
 
 	// Help overlay: ↑↓ scroll; ?/esc/q close.
@@ -190,6 +237,15 @@ func (m *Model) View() string {
 
 	if m.showHelp {
 		return m.overlayHelp(page)
+	}
+	if m.updateAlert.active {
+		return m.updateAlert.view(m.width, m.height)
+	}
+	if m.updating {
+		return m.renderUpdating()
+	}
+	if m.updateMenu.active {
+		return m.updateMenu.view(m.width, m.height)
 	}
 	return page
 }

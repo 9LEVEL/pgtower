@@ -6,6 +6,7 @@
 # Environment overrides:
 #   PGTUI_VERSION=v0.5.0            pin a version (default: latest release)
 #   PGTUI_INSTALL_DIR=/opt/bin      install directory (default: /usr/local/bin)
+#   PGTUI_CONFIG_DIR=/opt/pgtui     config directory to create (default: /opt/pgtui)
 #
 # It does NOT compile: pgtui ships as a single static binary (CGO disabled), so
 # it runs on any Linux distro (Debian, Ubuntu, Alpine, …) and macOS — only the
@@ -15,6 +16,7 @@ set -eu
 
 REPO="9level/pgtui"
 INSTALL_DIR="${PGTUI_INSTALL_DIR:-/usr/local/bin}"
+CONFIG_DIR="${PGTUI_CONFIG_DIR:-/opt/pgtui}"
 VERSION="${PGTUI_VERSION:-latest}"
 
 # Colors only when stderr is a terminal.
@@ -122,6 +124,60 @@ case ":$PATH:" in
 	*) warn "$INSTALL_DIR is not on your PATH — add:  export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
 esac
 
+# --- config directory: create it and seed a commented config.yml if absent ----
+CONFIG_FILE="$CONFIG_DIR/config.yml"
+say "Ensuring config directory $CONFIG_DIR…"
+CSUDO=
+if mkdir -p "$CONFIG_DIR" 2>/dev/null && [ -w "$CONFIG_DIR" ]; then
+	:
+elif command -v sudo >/dev/null 2>&1; then
+	CSUDO=sudo
+	$CSUDO mkdir -p "$CONFIG_DIR" 2>/dev/null || warn "could not create $CONFIG_DIR"
+else
+	warn "cannot create $CONFIG_DIR (no write access and no sudo)"
+fi
+
+if [ -d "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ]; then
+	tmpl=$(mktemp)
+	cat > "$tmpl" <<'YML'
+# pgtui configuration — https://github.com/9level/pgtui
+#
+# Precedence (highest first): environment variables (DATABASE_URL, PGTUI_*) >
+# this file > built-in defaults. Everything here is optional and commented out.
+
+# --- connection ---------------------------------------------------------------
+# Either a full DSN…
+# database_url: "postgres://user:pass@host:5432/postgres?sslmode=disable"
+
+# …or the individual parts (ignored when database_url is set):
+# host: 127.0.0.1
+# port: 5432
+# user: postgres
+# password: ""
+# database: postgres
+# sslmode: disable
+
+# --- behaviour ----------------------------------------------------------------
+# Dashboard auto-refresh, in seconds.
+# refresh_seconds: 5
+
+# PBKDF2 rounds for SCRAM password resets (0 = built-in safe default).
+# scram_iterations: 15000
+
+# Host facts the tuning advisor cannot read over SQL (0 = unknown).
+# host_ram_mb: 8192
+# host_cpus: 4
+
+# Check GitHub for a newer release on startup and offer to update (true/false).
+# update_check: true
+YML
+	if [ -n "$CSUDO" ]; then $CSUDO cp "$tmpl" "$CONFIG_FILE" 2>/dev/null; else cp "$tmpl" "$CONFIG_FILE" 2>/dev/null; fi
+	rm -f "$tmpl"
+	[ -f "$CONFIG_FILE" ] && ok "Starter config written: $CONFIG_FILE"
+elif [ -f "$CONFIG_FILE" ]; then
+	ok "Config already present: $CONFIG_FILE (left untouched)"
+fi
+
 printf '\n%s Ready. Point it at your cluster and run:\n' "${G}✓${N}" >&2
 printf '    export DATABASE_URL=%s\n' "'postgres://user:pass@host:5432/postgres?sslmode=disable'" >&2
-printf '    pgtui\n' >&2
+printf '    %s   %s\n' "pgtui" "# or edit $CONFIG_FILE" >&2

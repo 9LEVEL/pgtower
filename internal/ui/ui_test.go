@@ -625,8 +625,8 @@ func TestRolesFinderJump(t *testing.T) {
 		t.Error("roles must report CapturingInput while the finder is open")
 	}
 
-	v.Update(key("app"))       // narrows to app_user (index 1)
-	v.Update(key("enter"))     // jump
+	v.Update(key("app"))   // narrows to app_user (index 1)
+	v.Update(key("enter")) // jump
 	if v.finder.active {
 		t.Error("finder should close after selecting")
 	}
@@ -687,6 +687,41 @@ func TestDatabasesFinderJump(t *testing.T) {
 	v.Update(key("enter"))
 	if v.tblTable.Cursor() != 1 {
 		t.Errorf("after finding 'orders', table cursor = %d, want 1", v.tblTable.Cursor())
+	}
+}
+
+// TestUpdatePrompt: when a newer release is reported, a 3-choice modal opens;
+// an equal/older release stays silent. (Uses a DB-backed model, so it skips
+// without DATABASE_URL — the update package's own logic is covered by pure
+// tests in internal/update.)
+func TestUpdatePrompt(t *testing.T) {
+	mgr := testManager(t)
+	defer mgr.Close()
+	cfg := &config.Config{Host: "h", Port: "5432", User: "postgres", AdminDB: "postgres",
+		RefreshSeconds: 5, Version: "v0.1.0"}
+	m := New(cfg, mgr)
+	var tm tea.Model = m
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	// A newer release arrives -> the prompt opens with all three choices.
+	tm, _ = tm.Update(updateCheckedMsg{latest: "v9.9.9"})
+	assertContains(t, tm.View(), "Update available", "v0.1.0", "v9.9.9",
+		"Update now", "Not now", "Never suggest again")
+
+	// esc = "not now": the modal closes, back to the app.
+	tm, _ = tm.Update(key("esc"))
+	if m.updateMenu.active {
+		t.Error("esc should dismiss the update prompt")
+	}
+	assertContains(t, tm.View(), "Dashboard")
+
+	// An equal (or older) release must not prompt.
+	m2 := New(cfg, mgr)
+	var tm2 tea.Model = m2
+	tm2, _ = tm2.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	tm2, _ = tm2.Update(updateCheckedMsg{latest: "v0.1.0"})
+	if m2.updateMenu.active {
+		t.Error("an equal version should not open the update prompt")
 	}
 }
 
