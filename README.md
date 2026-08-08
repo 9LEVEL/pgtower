@@ -232,6 +232,13 @@ make release VERSION=v0.5.0     # validate semver + clean tree, tag, push
 Pushing a `v*.*.*` tag runs the CI (`.github/workflows/ci.yml`): tests, then
 `build-all`, then the binaries are attached to a GitHub Release.
 
-## License
+## License & trademarks
 
-[MIT](LICENSE) © 9Level · [9level.dev](https://9level.dev)
+The **source code** is licensed under the [MIT License](LICENSE) © 2026 9Level.
+
+The MIT license covers the code only — it does **not** grant rights to the
+project's brand. **"pgtui", "9Level", and the 9Level logo are trademarks of
+9Level**; see [TRADEMARKS.md](TRADEMARKS.md). If you fork it, please use a
+different name.
+
+· [9level.dev](https://9level.dev)
