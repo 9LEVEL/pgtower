@@ -17,6 +17,7 @@ type sessionsView struct {
 	sessions []db.Session
 	confirm  confirmModal
 	alert    alertModal
+	finder   finder
 
 	pendingAction string
 	pendingPID    int32
@@ -29,11 +30,14 @@ type sessionsView struct {
 }
 
 func newSessionsView(mgr *db.Manager) *sessionsView {
-	return &sessionsView{mgr: mgr, tbl: newTable(), confirm: newConfirmModal(), alert: newAlertModal()}
+	return &sessionsView{mgr: mgr, tbl: newTable(), confirm: newConfirmModal(),
+		alert: newAlertModal(), finder: newFinder()}
 }
 
-func (v *sessionsView) Title() string        { return "Sessions" }
-func (v *sessionsView) CapturingInput() bool { return v.confirm.active || v.alert.active }
+func (v *sessionsView) Title() string { return "Sessions" }
+func (v *sessionsView) CapturingInput() bool {
+	return v.confirm.active || v.alert.active || v.finder.active
+}
 
 func (v *sessionsView) Init() tea.Cmd {
 	v.loading = true
@@ -102,6 +106,16 @@ func (v *sessionsView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		v.alert.update(msg)
 		return nil
 	}
+	if v.finder.active {
+		res, cmd := v.finder.update(msg)
+		if res == finderSelect {
+			if idx := v.finder.selectedIndex(); idx >= 0 && idx < len(v.sessions) {
+				v.tbl.SetCursor(idx)
+			}
+			v.finder.close()
+		}
+		return cmd
+	}
 	if v.confirm.active {
 		switch v.confirm.update(msg) {
 		case confirmYes:
@@ -115,6 +129,8 @@ func (v *sessionsView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "r":
 		return v.Init()
+	case "/":
+		return v.openFinder()
 	case "c":
 		return v.confirmOn("cancel", "Cancel the running query (pg_cancel_backend)?")
 	case "k":
@@ -123,6 +139,20 @@ func (v *sessionsView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	v.tbl, cmd = v.tbl.Update(msg)
 	return cmd
+}
+
+// openFinder opens the quick-find overlay to jump to a session by PID, user,
+// database, state or query text.
+func (v *sessionsView) openFinder() tea.Cmd {
+	if len(v.sessions) == 0 {
+		return nil
+	}
+	items := make([]finderItem, len(v.sessions))
+	for i, s := range v.sessions {
+		items[i] = finderItem{index: i, label: fmt.Sprintf("%d  %s  %s  %s  %s",
+			s.PID, s.User, s.DB, s.State, s.Query)}
+	}
+	return v.finder.open("Find session", items)
 }
 
 func (v *sessionsView) confirmOn(action, question string) tea.Cmd {
@@ -145,11 +175,14 @@ func actionTitle(action string) string {
 }
 
 func (v *sessionsView) FooterHints() string {
-	return hint("c", "cancel query") + "   " + hint("k", "terminate connection") + "   " +
-		hint("r", "refresh") + "   " + hint("↑↓", "navigate")
+	return hint("/", "find") + "   " + hint("c", "cancel query") + "   " +
+		hint("k", "terminate connection") + "   " + hint("r", "refresh") + "   " + hint("↑↓", "navigate")
 }
 
 func (v *sessionsView) View() string {
+	if v.finder.active {
+		return v.finder.view(v.width, v.height)
+	}
 	if v.alert.active {
 		return v.alert.view(v.width, v.height)
 	}

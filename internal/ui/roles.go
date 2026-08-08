@@ -55,6 +55,7 @@ type rolesView struct {
 	confirm  confirmModal
 	alert    alertModal
 	menu     actionMenu
+	finder   finder
 	formKind int
 
 	confirmKind      int
@@ -73,13 +74,14 @@ type rolesView struct {
 }
 
 func newRolesView(cfg *config.Config, mgr *db.Manager) *rolesView {
-	return &rolesView{cfg: cfg, mgr: mgr, tbl: newTable(), confirm: newConfirmModal(), alert: newAlertModal()}
+	return &rolesView{cfg: cfg, mgr: mgr, tbl: newTable(), confirm: newConfirmModal(),
+		alert: newAlertModal(), finder: newFinder()}
 }
 
 func (v *rolesView) Title() string { return "Roles" }
 
 func (v *rolesView) CapturingInput() bool {
-	return v.form.active || v.confirm.active || v.alert.active || v.menu.active
+	return v.form.active || v.confirm.active || v.alert.active || v.menu.active || v.finder.active
 }
 
 func (v *rolesView) Init() tea.Cmd {
@@ -171,6 +173,16 @@ func (v *rolesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		v.alert.update(msg)
 		return nil
 	}
+	if v.finder.active {
+		res, cmd := v.finder.update(msg)
+		if res == finderSelect {
+			if idx := v.finder.selectedIndex(); idx >= 0 && idx < len(v.roles) {
+				v.tbl.SetCursor(idx)
+			}
+			v.finder.close()
+		}
+		return cmd
+	}
 	if v.menu.active {
 		if v.menu.update(msg) == menuSelect {
 			return v.runMenuAction(v.menu.cursor)
@@ -201,6 +213,8 @@ func (v *rolesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "enter":
 		return v.openRoleMenu()
+	case "/":
+		return v.openFinder()
 	case "r":
 		return v.Init()
 	case "n":
@@ -287,6 +301,19 @@ func (v *rolesView) askDropRole() tea.Cmd {
 	body := fmt.Sprintf("This will remove role %s from the cluster.\nType the name to confirm:",
 		stBadV.Render(role.Name))
 	return v.confirm.askCritical("⚠  DROP ROLE", body, role.Name)
+}
+
+// openFinder opens the quick-find overlay to jump to a role by name.
+func (v *rolesView) openFinder() tea.Cmd {
+	if len(v.roles) == 0 {
+		v.status = stWarnV.Render("no roles to search")
+		return nil
+	}
+	items := make([]finderItem, len(v.roles))
+	for i, r := range v.roles {
+		items[i] = finderItem{index: i, label: r.Name}
+	}
+	return v.finder.open("Find role", items)
 }
 
 // openRoleMenu opens the per-role actions menu for the highlighted role.
@@ -458,11 +485,14 @@ func (v *rolesView) submitForm() tea.Cmd {
 }
 
 func (v *rolesView) FooterHints() string {
-	return hint("enter", "manage") + "  " + hint("n", "create") + "  " + hint("g", "grant") + "  " +
-		hint("D", "drop") + "  " + hint("F", "force-drop") + "  " + hint("r", "refresh")
+	return hint("enter", "manage") + "  " + hint("/", "find") + "  " + hint("n", "create") + "  " +
+		hint("g", "grant") + "  " + hint("D", "drop") + "  " + hint("F", "force-drop") + "  " + hint("r", "refresh")
 }
 
 func (v *rolesView) View() string {
+	if v.finder.active {
+		return v.finder.view(v.width, v.height)
+	}
 	if v.alert.active {
 		return v.alert.view(v.width, v.height)
 	}

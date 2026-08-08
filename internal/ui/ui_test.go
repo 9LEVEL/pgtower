@@ -526,6 +526,170 @@ func TestDashboardTickStartsOnce(t *testing.T) {
 	}
 }
 
+// TestFuzzyMatch pins the matcher contract: subsequence (not just substring),
+// order-preserving, case-insensitive, empty-query-matches-all, and a ranking
+// that prefers an earlier / word-boundary hit.
+func TestFuzzyMatch(t *testing.T) {
+	// subsequence: 'apu' hits a,p,…,u in order inside "app_user".
+	if _, pos, ok := fuzzyMatch("apu", "app_user"); !ok || len(pos) != 3 {
+		t.Errorf("fuzzyMatch(apu, app_user) = ok=%v pos=%v, want ok with 3 positions", ok, pos)
+	}
+	// case-insensitive.
+	if _, _, ok := fuzzyMatch("APP", "app_user"); !ok {
+		t.Error("fuzzyMatch should be case-insensitive")
+	}
+	// no match when a rune is missing / out of order.
+	if _, _, ok := fuzzyMatch("xyz", "app_user"); ok {
+		t.Error("fuzzyMatch(xyz, app_user) should not match")
+	}
+	if _, _, ok := fuzzyMatch("resu", "app_user"); ok {
+		t.Error("fuzzyMatch should require in-order runes (resu is out of order)")
+	}
+	// empty query matches everything with score 0.
+	if s, _, ok := fuzzyMatch("", "whatever"); !ok || s != 0 {
+		t.Errorf("empty query: ok=%v score=%d, want ok, 0", ok, s)
+	}
+	// ranking: a word-boundary / earlier hit outranks a mid-word one.
+	early, _, _ := fuzzyMatch("user", "user_data")
+	late, _, _ := fuzzyMatch("user", "app_user")
+	if early <= late {
+		t.Errorf("ranking: 'user_data'=%d should outrank 'app_user'=%d", early, late)
+	}
+}
+
+// TestFinder drives the reusable finder: filter narrows the count, ranking puts
+// the best match first, arrows move, and selectedIndex maps back to caller data.
+func TestFinder(t *testing.T) {
+	f := newFinder()
+	f.open("Find role", []finderItem{
+		{index: 0, label: "postgres"},
+		{index: 1, label: "app_user"},
+		{index: 2, label: "app_admin"},
+	})
+	if !f.active {
+		t.Fatal("finder should be active after open")
+	}
+	assertContains(t, f.view(80, 30), "Find role", "3/3")
+
+	// type "app" -> only the two app_* roles remain; postgres drops out.
+	f.update(key("app"))
+	assertContains(t, f.view(80, 30), "2/3")
+	if got := f.selectedIndex(); got != 1 && got != 2 {
+		t.Errorf("selectedIndex after 'app' = %d, want an app_* role (1 or 2)", got)
+	}
+
+	// ctrl+n moves down to the second match; enter would pick it.
+	first := f.selectedIndex()
+	f.update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	if f.selectedIndex() == first {
+		t.Error("ctrl+n should move the cursor to the next match")
+	}
+	res, _ := f.update(key("enter"))
+	if res != finderSelect {
+		t.Errorf("enter on a non-empty list should return finderSelect, got %v", res)
+	}
+
+	// esc cancels and closes.
+	f.update(key("app"))
+	res, _ = f.update(key("esc"))
+	if res != finderCancel || f.active {
+		t.Errorf("esc should cancel and close; res=%v active=%v", res, f.active)
+	}
+
+	// no-match: enter does nothing, count reads 0.
+	f.open("t", []finderItem{{index: 0, label: "abc"}})
+	f.update(key("zzz"))
+	assertContains(t, f.view(80, 30), "0/1", "(no match)")
+	if res, _ := f.update(key("enter")); res != finderNone {
+		t.Errorf("enter with no match should be a no-op, got %v", res)
+	}
+}
+
+// TestRolesFinderJump: '/' opens the finder, typing filters, enter jumps the
+// table cursor to the matched role (no DB needed).
+func TestRolesFinderJump(t *testing.T) {
+	v := newRolesView(&config.Config{}, nil)
+	v.SetSize(120, 40)
+	v.Update(rolesMsg{rows: []db.Role{
+		{Name: "postgres", Super: true, CanLogin: true},
+		{Name: "app_user", CanLogin: true},
+		{Name: "reporting", CanLogin: true},
+	}})
+	if v.tbl.Cursor() != 0 {
+		t.Fatalf("cursor should start at 0, got %d", v.tbl.Cursor())
+	}
+
+	v.Update(key("/"))
+	assertContains(t, v.View(), "Find role", "3/3")
+	if !v.CapturingInput() {
+		t.Error("roles must report CapturingInput while the finder is open")
+	}
+
+	v.Update(key("app"))       // narrows to app_user (index 1)
+	v.Update(key("enter"))     // jump
+	if v.finder.active {
+		t.Error("finder should close after selecting")
+	}
+	if v.tbl.Cursor() != 1 {
+		t.Errorf("after finding 'app', cursor = %d, want 1 (app_user)", v.tbl.Cursor())
+	}
+	assertContains(t, v.View(), "Cluster roles")
+}
+
+// TestSessionsFinderJump: '/' finds a session by any column (here the user).
+func TestSessionsFinderJump(t *testing.T) {
+	v := newSessionsView(nil)
+	v.SetSize(130, 40)
+	v.Update(sessionsMsg{rows: []db.Session{
+		{PID: 100, User: "alice", DB: "prod", State: "active", Query: "select 1"},
+		{PID: 200, User: "bob", DB: "stage", State: "idle", Query: "update t"},
+		{PID: 300, User: "carol", DB: "prod", State: "active", Query: "vacuum"},
+	}})
+
+	v.Update(key("/"))
+	assertContains(t, v.View(), "Find session", "3/3")
+	v.Update(key("bob"))
+	assertContains(t, v.View(), "1/3")
+	v.Update(key("enter"))
+	if v.tbl.Cursor() != 1 {
+		t.Errorf("after finding 'bob', cursor = %d, want 1", v.tbl.Cursor())
+	}
+}
+
+// TestDatabasesFinderJump: '/' finds a database in the list, and a table in the
+// table list.
+func TestDatabasesFinderJump(t *testing.T) {
+	v := newDatabasesView(nil)
+	v.SetSize(120, 40)
+	v.Update(databasesMsg{rows: []db.Database{
+		{Name: "postgres"}, {Name: "b_fusion"}, {Name: "db_corely"},
+	}})
+
+	v.Update(key("/"))
+	assertContains(t, v.View(), "Find database", "3/3")
+	v.Update(key("corely"))
+	v.Update(key("enter"))
+	if v.dbTable.Cursor() != 2 {
+		t.Errorf("after finding 'corely', db cursor = %d, want 2", v.dbTable.Cursor())
+	}
+
+	// table list: seed tables for the selected db and find one by name.
+	v.selectedDB = "postgres"
+	v.mode = modeTables
+	v.Update(tablesMsg{dbname: "postgres", rows: []db.Table{
+		{Schema: "public", Name: "widgets"},
+		{Schema: "public", Name: "orders"},
+		{Schema: "audit", Name: "log"},
+	}})
+	v.Update(key("/"))
+	assertContains(t, v.View(), "Find table", "3/3")
+	v.Update(key("orders"))
+	v.Update(key("enter"))
+	if v.tblTable.Cursor() != 1 {
+		t.Errorf("after finding 'orders', table cursor = %d, want 1", v.tblTable.Cursor())
+	}
+}
+
 func assertContains(t *testing.T, s string, subs ...string) {
 	t.Helper()
 	for _, sub := range subs {

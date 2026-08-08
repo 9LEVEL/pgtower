@@ -30,6 +30,7 @@ type databasesView struct {
 	browser  *dataBrowser
 
 	dbs        []db.Database
+	tables     []db.Table
 	selectedDB string
 	tblCount   int
 	tblTotal   string
@@ -43,6 +44,7 @@ type databasesView struct {
 	form          form
 	confirm       confirmModal
 	alert         alertModal
+	finder        finder
 	pendingDropDB string
 	status        string
 
@@ -59,6 +61,7 @@ func newDatabasesView(mgr *db.Manager) *databasesView {
 	v.browser = newDataBrowser(mgr)
 	v.confirm = newConfirmModal()
 	v.alert = newAlertModal()
+	v.finder = newFinder()
 	v.descVP = viewport.New(80, 20)
 	return v
 }
@@ -66,7 +69,7 @@ func newDatabasesView(mgr *db.Manager) *databasesView {
 func (v *databasesView) Title() string { return "Databases" }
 
 func (v *databasesView) CapturingInput() bool {
-	if v.form.active || v.confirm.active || v.alert.active {
+	if v.finder.active || v.form.active || v.confirm.active || v.alert.active {
 		return true
 	}
 	return v.mode == modeTableData && v.browser.CapturingInput()
@@ -140,6 +143,7 @@ func (v *databasesView) Update(msg tea.Msg) tea.Cmd {
 		v.loading = false
 		v.err = msg.err
 		if msg.err == nil {
+			v.tables = msg.rows
 			v.tblCount = len(msg.rows)
 			var total int64
 			rows := make([]table.Row, 0, len(msg.rows))
@@ -195,6 +199,14 @@ func (v *databasesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		v.alert.update(msg)
 		return nil
 	}
+	if v.finder.active {
+		res, cmd := v.finder.update(msg)
+		if res == finderSelect {
+			v.applyFinderSelection(v.finder.selectedIndex())
+			v.finder.close()
+		}
+		return cmd
+	}
 	if v.confirm.active {
 		switch v.confirm.update(msg) {
 		case confirmYes:
@@ -244,12 +256,15 @@ func (v *databasesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 			v.mode = modeTables
 			v.loading = true
 			v.err = nil
+			v.tables = nil
 			v.tblTable.SetRows(nil)
 			return loadTables(v.mgr, v.selectedDB)
 		case "n":
 			return v.openCreateDB()
 		case "D":
 			return v.askDropDB()
+		case "/":
+			return v.openFinder()
 		case "r":
 			return v.Init()
 		}
@@ -276,6 +291,8 @@ func (v *databasesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 			v.descTitle = row[0] + "." + row[1]
 			v.descVP.SetContent("loading…")
 			return describeTable(v.mgr, v.selectedDB, row[0], row[1])
+		case "/":
+			return v.openFinder()
 		case "esc":
 			v.mode = modeDBList
 			v.err = nil
@@ -290,6 +307,49 @@ func (v *databasesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return cmd
 	}
 	return nil
+}
+
+// openFinder opens the quick-find overlay for whichever list is on screen: the
+// database list or the table list.
+func (v *databasesView) openFinder() tea.Cmd {
+	switch v.mode {
+	case modeDBList:
+		if len(v.dbs) == 0 {
+			return nil
+		}
+		items := make([]finderItem, len(v.dbs))
+		for i, d := range v.dbs {
+			items[i] = finderItem{index: i, label: d.Name}
+		}
+		return v.finder.open("Find database", items)
+	case modeTables:
+		if len(v.tables) == 0 {
+			return nil
+		}
+		items := make([]finderItem, len(v.tables))
+		for i, t := range v.tables {
+			items[i] = finderItem{index: i, label: t.Schema + "." + t.Name}
+		}
+		return v.finder.open("Find table", items)
+	}
+	return nil
+}
+
+// applyFinderSelection moves the active list's cursor to the chosen row.
+func (v *databasesView) applyFinderSelection(idx int) {
+	if idx < 0 {
+		return
+	}
+	switch v.mode {
+	case modeDBList:
+		if idx < len(v.dbs) {
+			v.dbTable.SetCursor(idx)
+		}
+	case modeTables:
+		if idx < len(v.tables) {
+			v.tblTable.SetCursor(idx)
+		}
+	}
 }
 
 func (v *databasesView) openCreateDB() tea.Cmd {
@@ -329,13 +389,16 @@ func (v *databasesView) FooterHints() string {
 	case modeDescribe:
 		return hint("esc", "back") + "   " + hint("↑↓", "scroll")
 	case modeTables:
-		return hint("enter", "view data") + "  " + hint("d", "describe") + "  " + hint("esc", "back") + "  " + hint("↑↓", "navigate") + "  " + hint("r", "reload")
+		return hint("enter", "view data") + "  " + hint("d", "describe") + "  " + hint("/", "find") + "  " + hint("esc", "back") + "  " + hint("↑↓", "navigate") + "  " + hint("r", "reload")
 	default:
-		return hint("enter", "tables") + "  " + hint("n", "create db") + "  " + hint("D", "drop db") + "  " + hint("↑↓", "navigate") + "  " + hint("r", "reload")
+		return hint("enter", "tables") + "  " + hint("/", "find") + "  " + hint("n", "create db") + "  " + hint("D", "drop db") + "  " + hint("↑↓", "navigate") + "  " + hint("r", "reload")
 	}
 }
 
 func (v *databasesView) View() string {
+	if v.finder.active {
+		return v.finder.view(v.width, v.height)
+	}
 	if v.alert.active {
 		return v.alert.view(v.width, v.height)
 	}
