@@ -57,18 +57,43 @@ superuser (see [Permissions](#permissions)).
 
 ## Install
 
-pgtui is a compiled Go utility — a single static binary.
+### One line (Linux / macOS)
 
 ```bash
-# from source (Go 1.26+)
+curl -fsSL https://raw.githubusercontent.com/9level/pgtui/master/install.sh | sh
+```
+
+It detects your OS/arch, downloads the latest **static** binary (verifying its
+SHA-256) and installs it to `/usr/local/bin` — **no compiler, no runtime
+dependencies**. The binary runs on any Linux distro (Debian, Ubuntu, Alpine, …)
+and macOS; only the CPU architecture matters:
+
+| | amd64 (x86_64) | arm64 (aarch64) |
+|---|:---:|:---:|
+| **Linux** | ✅ | ✅ |
+| **macOS** | ✅ | ✅ |
+| **Windows** | build from source / WSL | — |
+
+Tweak the install: `PGTUI_INSTALL_DIR="$HOME/.local/bin"` or `PGTUI_VERSION=v0.4.0`.
+Prefer to read before you pipe to a shell? It's just [`install.sh`](install.sh).
+Prebuilt binaries are also attached to each
+[GitHub Release](https://github.com/9level/pgtui/releases).
+
+### From source (Go 1.26+)
+
+```bash
 git clone https://github.com/9level/pgtui.git
 cd pgtui
 make build          # -> ./pgtui
 make install        # -> /usr/local/bin/pgtui (sudo)
 ```
 
-Prebuilt binaries for Linux/macOS (amd64/arm64) are attached to each
-[GitHub Release](https://github.com/9level/pgtui/releases).
+### Get running in 30 seconds
+
+```bash
+export DATABASE_URL='postgres://user:pass@host:5432/postgres?sslmode=disable'
+pgtui        # opens on the Dashboard — press ? for shortcuts, q to quit
+```
 
 ## Configuration
 

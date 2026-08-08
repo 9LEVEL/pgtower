@@ -34,7 +34,8 @@ build-all:
 		echo "-> $$out"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $$out . || exit 1; \
 	done
-	@echo "binaries in dist/"
+	@cd dist && { command -v sha256sum >/dev/null 2>&1 && sha256sum $(BINARY)-$(VERSION)-* || shasum -a 256 $(BINARY)-$(VERSION)-*; } > SHA256SUMS
+	@echo "binaries + SHA256SUMS in dist/"
 
 ## test: unit + integration smoke (uses DATABASE_URL if set)
 .PHONY: test
