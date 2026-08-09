@@ -118,9 +118,17 @@ func (v *dashboardView) View() string {
 		}
 	}
 
+	connLines := []string{connHead,
+		stLabel.Render(fmt.Sprintf("active %d · idle %d · tx %d", d.Active, d.Idle, d.IdleInTx))}
+	// Be transparent about pgtui's own footprint: a monitoring tool holding
+	// several backends would otherwise inflate "connections used" and make it
+	// look frozen when you kill other sessions.
+	if d.PgtuiConns > 0 {
+		connLines = append(connLines, stKeyHint.Render(fmt.Sprintf("incl. pgtui %d", d.PgtuiConns)))
+	}
+
 	row1 := []dashCard{
-		{"Connections", []string{connHead,
-			stLabel.Render(fmt.Sprintf("active %d · idle %d · tx %d", d.Active, d.Idle, d.IdleInTx))}},
+		{"Connections", connLines},
 		{"Cache hit", []string{colorRatio(d.CacheHitRatio),
 			stLabel.Render(fmt.Sprintf("commits %s · rollbacks %s", human(d.Commits), human(d.Rollbacks)))}},
 		{"Storage", []string{stValue.Render(d.TotalSize),
@@ -146,6 +154,8 @@ func (v *dashboardView) View() string {
 
 	var b strings.Builder
 	b.WriteString("\n")
+	b.WriteString(v.statusLine())
+	b.WriteString("\n\n")
 	b.WriteString(v.renderRow(row1, h))
 	b.WriteString("\n\n")
 	b.WriteString(v.renderRow(row2, h))
@@ -154,6 +164,20 @@ func (v *dashboardView) View() string {
 		b.WriteString(adv)
 	}
 	return b.String()
+}
+
+// statusLine shows that the dashboard is live and when it last refreshed, so a
+// value that legitimately does not change (e.g. a busy cluster) is not mistaken
+// for a frozen screen.
+func (v *dashboardView) statusLine() string {
+	parts := []string{"live"}
+	if secs := int(v.interval.Seconds()); secs > 0 {
+		parts = append(parts, fmt.Sprintf("auto-refresh every %ds", secs))
+	}
+	if !v.updated.IsZero() {
+		parts = append(parts, "updated "+v.updated.Format("15:04:05"))
+	}
+	return stKeyHint.Render(strings.Join(parts, " · "))
 }
 
 // connAdvisor renders the connection-usage findings (Unit 1 advisor) so the

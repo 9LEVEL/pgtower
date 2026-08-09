@@ -768,6 +768,24 @@ func TestQuitConfirm(t *testing.T) {
 	}
 }
 
+// TestDashboardAutoRefresh guards the refresh loop: a tick must reschedule the
+// next reload (nil would freeze the dashboard), and the Connections card must
+// disclose how many backends are pgtui's own.
+func TestDashboardAutoRefresh(t *testing.T) {
+	d := newDashboardView(&config.Config{RefreshSeconds: 5}, nil)
+	d.SetSize(120, 40)
+
+	if cmd := d.Update(tickMsg(time.Now())); cmd == nil {
+		t.Fatal("tickMsg must return a command (reload + reschedule) or the dashboard freezes")
+	}
+
+	d.Update(dashboardMsg{data: db.DashboardData{
+		Version: "PostgreSQL 18.4", MaxConns: 100, TotalConns: 40, PgtuiConns: 18,
+		Active: 3, Idle: 30, TotalSize: "1 MB", StartedAt: time.Now(),
+	}})
+	assertContains(t, d.View(), "40 / 100", "incl. pgtui 18", "live", "auto-refresh every 5s")
+}
+
 func assertContains(t *testing.T, s string, subs ...string) {
 	t.Helper()
 	for _, sub := range subs {

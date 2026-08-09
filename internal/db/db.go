@@ -29,9 +29,14 @@ func NewManager(ctx context.Context, dsn, adminDB string) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid dsn: %w", err)
 	}
-	cfg.MaxConns = 4
+	// Keep pgtui's own footprint small so it doesn't dominate the cluster's
+	// connection count (a monitoring tool that shows up as 20 backends makes the
+	// dashboard's "connections used" misleading). Few connections per database,
+	// released quickly once idle, and reclaimed by frequent health checks.
+	cfg.MaxConns = 3
 	cfg.MinConns = 0
-	cfg.MaxConnIdleTime = 2 * time.Minute
+	cfg.MaxConnIdleTime = 20 * time.Second
+	cfg.HealthCheckPeriod = 15 * time.Second
 	cfg.ConnConfig.ConnectTimeout = 8 * time.Second
 	// Identifies the origin of connections in pg_stat_activity.
 	if cfg.ConnConfig.RuntimeParams == nil {

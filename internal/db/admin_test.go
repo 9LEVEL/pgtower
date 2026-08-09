@@ -415,6 +415,35 @@ func TestDescribeLive(t *testing.T) {
 	}
 }
 
+// TestDashboardCountsPgtuiConnsLive proves the dashboard sees pgtui's own
+// backends (application_name = 'pgtui'), so the UI can disclose that footprint
+// instead of letting it silently inflate "connections used".
+func TestDashboardCountsPgtuiConnsLive(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	mgr, err := db.NewManager(ctx, dsn, "postgres")
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	defer mgr.Close()
+	p, _ := mgr.Pool(ctx, "postgres")
+
+	d, err := db.LoadDashboard(ctx, p)
+	if err != nil {
+		t.Fatalf("LoadDashboard: %v", err)
+	}
+	if d.PgtuiConns < 1 {
+		t.Errorf("PgtuiConns = %d, want >= 1 (our own connection carries application_name=pgtui)", d.PgtuiConns)
+	}
+	if d.TotalConns < d.PgtuiConns {
+		t.Errorf("TotalConns %d < PgtuiConns %d — impossible", d.TotalConns, d.PgtuiConns)
+	}
+}
+
 func hasRole(rs []db.Role, name string) bool {
 	for _, r := range rs {
 		if r.Name == name {
