@@ -210,7 +210,7 @@ Press `?` in the app for the full, scrollable list.
 | `/` | fuzzy quick-find a role by name |
 | `enter` | manage role: reset password (random 32-char, shown once) / set connection limit / edit attributes |
 | `n` | create role/user |
-| `g` | grant to a database (CONNECT / ALL / read-write / public schema / owner) |
+| `g` | grant to a database (CONNECT / ALL / read-only / read-write / public schema / owner) |
 | `R` | revoke from a database (undoes the default privileges too) |
 | `D` | drop role (asks for the name) |
 | `F` | force-drop: reassign ownership to a successor, then drop — no data loss |

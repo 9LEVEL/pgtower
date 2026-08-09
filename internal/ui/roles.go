@@ -285,7 +285,9 @@ func (v *rolesView) openGrantForm() tea.Cmd {
 // grantScopes maps the privilege select in the grant form to its scope, in the
 // order the options are listed. Revoke uses the same order minus ownership.
 var grantScopes = []db.GrantScope{
-	db.GrantConnect, db.GrantAllDatabase, db.GrantSchemaReadWrite, db.GrantSchemaAll, db.GrantOwner,
+	db.GrantConnect, db.GrantAllDatabase,
+	db.GrantSchemaReadOnly, db.GrantSchemaReadWrite, db.GrantSchemaAll,
+	db.GrantOwner,
 }
 
 // revokeScopes is derived from grantScopes so the two menus can never drift:

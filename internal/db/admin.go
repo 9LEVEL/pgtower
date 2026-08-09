@@ -291,6 +291,7 @@ const (
 	GrantOwner                             // ALTER DATABASE ... OWNER TO
 	GrantSchemaAll                         // full access to the public schema (runs on the target db)
 	GrantSchemaReadWrite                   // read/write rows, no DDL (runs on the target db)
+	GrantSchemaReadOnly                    // read-only (SELECT), no writes (runs on the target db)
 )
 
 func (g GrantScope) Label() string {
@@ -305,6 +306,8 @@ func (g GrantScope) Label() string {
 		return "full access to public schema"
 	case GrantSchemaReadWrite:
 		return "read/write rows, no DDL"
+	case GrantSchemaReadOnly:
+		return "read-only (SELECT), no writes"
 	default:
 		return "?"
 	}
@@ -346,6 +349,19 @@ func BuildGrant(scope GrantScope, database, role string) (targetDB string, stmts
 			"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO " + r,
 			"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO " + r,
 		}
+	case GrantSchemaReadOnly:
+		// The least privilege that is still useful: read every row, change
+		// nothing. A leak of such a role (injection, stolen credential) can
+		// exfiltrate data but cannot corrupt or delete it. The ALTER DEFAULT
+		// PRIVILEGES line is what makes it read tables created later too —
+		// without it "read everything" quietly stops at today's tables.
+		return database, []string{
+			"GRANT USAGE ON SCHEMA public TO " + r,
+			"GRANT SELECT ON ALL TABLES IN SCHEMA public TO " + r,
+			"GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO " + r,
+			"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO " + r,
+			"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON SEQUENCES TO " + r,
+		}
 	default:
 		return "", nil
 	}
@@ -366,7 +382,10 @@ func BuildRevoke(scope GrantScope, database, role string) (targetDB string, stmt
 		return "", []string{"REVOKE CONNECT ON DATABASE " + dbq + " FROM " + r}
 	case GrantAllDatabase:
 		return "", []string{"REVOKE ALL PRIVILEGES ON DATABASE " + dbq + " FROM " + r}
-	case GrantSchemaAll, GrantSchemaReadWrite:
+	case GrantSchemaAll, GrantSchemaReadWrite, GrantSchemaReadOnly:
+		// REVOKE ALL is a superset: it undoes whichever schema preset was
+		// granted (read-only, read/write or full), including the default
+		// privileges, so a role can never keep access to tables created later.
 		return database, []string{
 			"ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM " + r,
 			"ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM " + r,

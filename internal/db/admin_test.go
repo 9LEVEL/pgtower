@@ -543,6 +543,51 @@ func TestBuildGrantReadWriteHasNoDDL(t *testing.T) {
 	}
 }
 
+func TestBuildGrantReadOnlyIsSelectOnly(t *testing.T) {
+	tgt, stmts := db.BuildGrant(db.GrantSchemaReadOnly, "app_db", "app")
+	if tgt != "app_db" || len(stmts) == 0 {
+		t.Fatalf("read-only grant = %q %v", tgt, stmts)
+	}
+	joined := strings.Join(stmts, "\n")
+
+	// The whole point: reads, never writes. No write verb or DDL may appear.
+	for _, forbidden := range []string{"INSERT", "UPDATE", "DELETE", "GRANT ALL", "ALL PRIVILEGES"} {
+		if strings.Contains(joined, forbidden) {
+			t.Errorf("read-only preset contains %q:\n%s", forbidden, joined)
+		}
+	}
+	// It grants SELECT and covers tables created later via default privileges —
+	// the mirror of the revoke trap: "read everything" must include the future.
+	for _, want := range []string{
+		"GRANT USAGE ON SCHEMA public",
+		"GRANT SELECT ON ALL TABLES",
+		"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("read-only preset missing %q in:\n%s", want, joined)
+		}
+	}
+
+	// It is revocable, and shares the schema revoke path (REVOKE ALL + undo
+	// default privileges), so it can never leave a role stuck on future tables.
+	if !db.GrantSchemaReadOnly.Revocable() {
+		t.Error("read-only should be revocable")
+	}
+	rtgt, rstmts := db.BuildRevoke(db.GrantSchemaReadOnly, "app_db", "app")
+	if rtgt != "app_db" || len(rstmts) == 0 {
+		t.Fatalf("read-only revoke = %q %v", rtgt, rstmts)
+	}
+	var undoesDefaults bool
+	for _, s := range rstmts {
+		if strings.Contains(s, "ALTER DEFAULT PRIVILEGES") && strings.Contains(s, "REVOKE") {
+			undoesDefaults = true
+		}
+	}
+	if !undoesDefaults {
+		t.Errorf("read-only revoke must undo default privileges: %v", rstmts)
+	}
+}
+
 // TestRoleAttributesRoundtripLive is the cycle that had no way back before:
 // give a role an attribute, then take it away. Until ALTER ROLE existed here,
 // the only way to undo CREATEDB was to drop the role.
