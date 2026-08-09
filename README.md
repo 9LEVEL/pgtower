@@ -57,7 +57,7 @@ superuser (see [Permissions](#permissions)).
 | **3 · Query** | SQL editor with a paged result grid. `x` runs **EXPLAIN** (plan only). Writes require confirmation; destructive statements (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` without `WHERE`) require typing `yes`. |
 | **4 · Locks** | Blocking tree: which session waits on which. |
 | **5 · Sessions** | `pg_stat_activity` with state/wait/duration/query. `c` cancels the query, `k` terminates the connection, `/` **fuzzy quick-find** (by PID, user, database, state or query text). |
-| **6 · Roles** | Roles with their attributes and connection limit (`CONN`, ∞ = unlimited). `SUPER` and `BYPASSRLS` are marked `⚠ yes` — both ignore row-level security. `enter` **manage** the selected role (reset password — random 32-char, shown once; set the connection limit; or **edit attributes**: LOGIN, CREATEDB, CREATEROLE, SUPERUSER, REPLICATION, BYPASSRLS), `n` create, `g` grant to a database, `R` revoke, `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss), `/` **fuzzy quick-find** by name. |
+| **6 · Roles** | Roles with their attributes and connection limit (`CONN`, ∞ = unlimited). `SUPER` and `BYPASSRLS` are marked `⚠ yes` — both ignore row-level security. `enter` **manage** the selected role (reset password — random 32-char, shown once; set the connection limit; **edit attributes**: LOGIN, CREATEDB, CREATEROLE, SUPERUSER, REPLICATION, BYPASSRLS; or **show access** — a per-database report of what the role owns and is granted, schema/table privileges included). `n` create, `g` grant / `R` revoke (pick the database in a fuzzy finder, then the privilege, then **confirm the exact SQL**), `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss), `/` **fuzzy quick-find** by name. |
 | **7 · Tuning** | Config sections (switch with `a` / `s` / `h`): a read-only **configuration advisor** (`shared_buffers`, `effective_cache_size`, `work_mem`, `maintenance_work_mem`, `max_connections` — current vs recommended with a verdict; concrete targets need `PGTUI_HOST_RAM_MB` / `PGTUI_HOST_CPUS`); an **ALTER SYSTEM editor** (`enter` edit / `x` reset any GUC — validated against type & bounds, applied with `pg_reload_conf`, `/` filters, restart-required settings are flagged); and a **pg_hba editor** (`pg_hba_file_rules` with parse-error flags; `n`/`e`/`d` add/edit/delete a rule — superuser only, each write is backed up, validated, reloaded and **auto-rolled-back if admin login breaks**). `r` refresh. |
 
 ## Install
@@ -208,10 +208,10 @@ Press `?` in the app for the full, scrollable list.
 | `k` | terminate the connection (`pg_terminate_backend`) |
 | **Roles** | |
 | `/` | fuzzy quick-find a role by name |
-| `enter` | manage role: reset password (random 32-char, shown once) / set connection limit / edit attributes |
+| `enter` | manage role: reset password / connection limit / edit attributes / show access |
 | `n` | create role/user |
-| `g` | grant to a database (CONNECT / ALL / read-only / read-write / public schema / owner) |
-| `R` | revoke from a database (undoes the default privileges too) |
+| `g` | grant to a database — fuzzy-pick the database, choose the privilege (CONNECT / ALL / read-only / read-write / public schema / owner), then confirm the SQL |
+| `R` | revoke from a database (same picker; undoes the default privileges too) |
 | `D` | drop role (asks for the name) |
 | `F` | force-drop: reassign ownership to a successor, then drop — no data loss |
 | **Tuning** | |

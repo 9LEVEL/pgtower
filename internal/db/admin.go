@@ -367,6 +367,142 @@ func BuildGrant(scope GrantScope, database, role string) (targetDB string, stmts
 	}
 }
 
+// TablePriv is a table privilege and how many tables in the schema carry it.
+type TablePriv struct {
+	Privilege string
+	Count     int
+}
+
+// DBAccess summarizes what access a role has to one database: ownership,
+// explicit database-level grants, and the explicit schema/table privileges
+// found inside that database.
+type DBAccess struct {
+	Database string
+	IsOwner  bool
+	DBPrivs  []string    // explicit database grants (CONNECT / CREATE / TEMPORARY)
+	Schema   []string    // explicit privileges on schema public (USAGE / CREATE)
+	Tables   []TablePriv // per-privilege table counts in schema public
+	Err      string      // set when the per-database probe failed
+}
+
+// RoleAccess reports, per database, where a role has been granted access:
+// ownership and explicit database-level grants (read once from the admin
+// connection), plus the explicit schema/table privileges probed inside each
+// connectable database. Databases where the role has nothing explicit are
+// omitted. PUBLIC usually holds CONNECT, so a role may still connect to a
+// database that does not appear here — the caller should say so.
+func RoleAccess(ctx context.Context, mgr *Manager, role string) ([]DBAccess, error) {
+	admin, err := mgr.Pool(ctx, mgr.AdminDB())
+	if err != nil {
+		return nil, err
+	}
+
+	// Database level: ownership + explicit datacl grants for the role. aclexplode
+	// turns the ACL array into rows; grantee 0 is PUBLIC (filtered out).
+	rows, err := admin.Query(ctx, `
+		select d.datname,
+		       pg_get_userbyid(d.datdba) = $1 as is_owner,
+		       coalesce(array_agg(distinct a.privilege_type)
+		                filter (where g.rolname = $1), '{}') as db_privs
+		from pg_database d
+		left join lateral aclexplode(d.datacl) a on true
+		left join pg_roles g on g.oid = a.grantee
+		where not d.datistemplate and d.datallowconn
+		group by d.datname, d.datdba
+		order by d.datname`, role)
+	if err != nil {
+		return nil, err
+	}
+	type dbrow struct {
+		name    string
+		isOwner bool
+		privs   []string
+	}
+	var dbrows []dbrow
+	for rows.Next() {
+		var r dbrow
+		if err := rows.Scan(&r.name, &r.isOwner, &r.privs); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		dbrows = append(dbrows, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var out []DBAccess
+	for _, dr := range dbrows {
+		acc := DBAccess{Database: dr.name, IsOwner: dr.isOwner, DBPrivs: dr.privs}
+		if p, e := mgr.Pool(ctx, dr.name); e != nil {
+			acc.Err = oneLine(e)
+		} else if schema, tables, e := roleSchemaAccess(ctx, p, role); e != nil {
+			acc.Err = oneLine(e)
+		} else {
+			acc.Schema, acc.Tables = schema, tables
+		}
+		if acc.IsOwner || len(acc.DBPrivs) > 0 || len(acc.Schema) > 0 || len(acc.Tables) > 0 || acc.Err != "" {
+			out = append(out, acc)
+		}
+	}
+	return out, nil
+}
+
+// roleSchemaAccess probes one database for a role's explicit schema-public and
+// table privileges. It reads the ACLs directly (aclexplode over nspacl/relacl)
+// rather than has_*_privilege, so it reports what was actually granted to the
+// role and not what PUBLIC confers on everyone.
+func roleSchemaAccess(ctx context.Context, p Pinger, role string) ([]string, []TablePriv, error) {
+	var schema []string
+	srows, err := p.Query(ctx, `
+		select a.privilege_type
+		from pg_namespace n
+		cross join lateral aclexplode(n.nspacl) a
+		join pg_roles g on g.oid = a.grantee
+		where n.nspname = 'public' and g.rolname = $1
+		order by 1`, role)
+	if err != nil {
+		return nil, nil, err
+	}
+	for srows.Next() {
+		var s string
+		if err := srows.Scan(&s); err != nil {
+			srows.Close()
+			return nil, nil, err
+		}
+		schema = append(schema, s)
+	}
+	srows.Close()
+	if err := srows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	var tables []TablePriv
+	trows, err := p.Query(ctx, `
+		select a.privilege_type, count(distinct c.oid)
+		from pg_class c
+		join pg_namespace n on n.oid = c.relnamespace
+		cross join lateral aclexplode(c.relacl) a
+		join pg_roles g on g.oid = a.grantee
+		where n.nspname = 'public' and c.relkind in ('r','v','m','p','f') and g.rolname = $1
+		group by a.privilege_type
+		order by 1`, role)
+	if err != nil {
+		return schema, nil, err
+	}
+	for trows.Next() {
+		var tp TablePriv
+		if err := trows.Scan(&tp.Privilege, &tp.Count); err != nil {
+			trows.Close()
+			return schema, nil, err
+		}
+		tables = append(tables, tp)
+	}
+	trows.Close()
+	return schema, tables, trows.Err()
+}
+
 // BuildRevoke mirrors BuildGrant. It returns no statements for GrantOwner,
 // which is a transfer rather than a privilege.
 //

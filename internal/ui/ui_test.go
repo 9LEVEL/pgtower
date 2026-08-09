@@ -249,9 +249,9 @@ func TestSessionsAndRolesRender(t *testing.T) {
 	assertContains(t, m.View(), "Create role", "Name", "Password")
 	m, _ = m.Update(key("esc"))
 
-	// 'g' opens the grant form (with selectable database)
+	// 'g' starts the grant flow: pick the database in the fuzzy finder first
 	m, _ = m.Update(key("g"))
-	assertContains(t, m.View(), "Grant", "Database", "Privilege")
+	assertContains(t, m.View(), "Grant", "pick database", "prod", "stage")
 	m, _ = m.Update(key("esc"))
 
 	// An admin action error opens an alert with the FULL message (no truncation).
@@ -854,16 +854,67 @@ func TestRolesEscalationIsGuarded(t *testing.T) {
 
 // TestRolesRevokeFormOffersNoOwnership: ownership is a transfer, not a
 // privilege, so it must not appear in a revoke menu that cannot undo it.
-func TestRolesRevokeFormOffersNoOwnership(t *testing.T) {
+// TestRolesRevokeScopeOffersNoOwnership drives R → pick database → privilege and
+// checks the scope step never offers ownership (a transfer, not a privilege).
+func TestRolesRevokeScopeOffersNoOwnership(t *testing.T) {
 	v := newRolesView(&config.Config{}, nil)
 	v.SetSize(140, 40)
 	v.Update(rolesMsg{rows: []db.Role{{Name: "app_user", CanLogin: true}}})
 	v.Update(databasesMsg{rows: []db.Database{{Name: "app_db"}}})
 
 	v.Update(key("R"))
+	assertContains(t, v.View(), "Revoke", "pick database", "app_db")
+	v.Update(key("enter")) // pick app_db -> privilege form
 	view := v.View()
-	assertContains(t, view, "Revoke", "app_user", "app_db")
+	assertContains(t, view, "Revoke", "app_user", "app_db", "Privilege")
 	if strings.Contains(view, db.GrantOwner.Label()) {
-		t.Errorf("revoke form offers ownership, which it cannot undo:\n%s", view)
+		t.Errorf("revoke scope offers ownership, which it cannot undo:\n%s", view)
 	}
+}
+
+// TestRolesGrantFlowConfirms proves the grant path asks for confirmation (with
+// the exact SQL) before applying — the guard for "enter on the wrong role".
+func TestRolesGrantFlowConfirms(t *testing.T) {
+	v := newRolesView(&config.Config{}, nil)
+	v.SetSize(140, 40)
+	v.Update(rolesMsg{rows: []db.Role{{Name: "app_user", CanLogin: true}}})
+	v.Update(databasesMsg{rows: []db.Database{{Name: "app_db"}, {Name: "other"}}})
+
+	v.Update(key("g"))
+	assertContains(t, v.View(), "Grant", "pick database", "app_db")
+	v.Update(key("app"))   // fuzzy-filter to app_db
+	v.Update(key("enter")) // pick it -> privilege form
+	assertContains(t, v.View(), "Grant", "app_user", "app_db", "Privilege")
+
+	v.Update(key("enter")) // submit the first privilege (CONNECT) -> confirmation
+	if !v.confirm.active {
+		t.Fatal("grant must ask for confirmation before applying")
+	}
+	assertContains(t, v.View(), "Grant privileges?", "app_db", "app_user", "GRANT CONNECT ON DATABASE")
+	if len(v.pendingGrantStmts) == 0 {
+		t.Error("no statements staged for the confirmation")
+	}
+
+	v.Update(key("y")) // confirm (exec cmd not run with nil mgr)
+	if v.confirm.active {
+		t.Error("confirm should close after y")
+	}
+}
+
+// TestRolesAccessReport renders the inspector's per-database report from a
+// synthetic result (no DB needed).
+func TestRolesAccessReport(t *testing.T) {
+	v := newRolesView(&config.Config{}, nil)
+	v.SetSize(140, 40)
+	v.Update(rolesMsg{rows: []db.Role{{Name: "app_user", CanLogin: true}}})
+	v.Update(roleAccessMsg{role: "app_user", rows: []db.DBAccess{
+		{Database: "app_db", IsOwner: true, DBPrivs: []string{"CONNECT"},
+			Schema: []string{"USAGE"}, Tables: []db.TablePriv{{Privilege: "SELECT", Count: 12}}},
+	}})
+	assertContains(t, v.View(), "Access · app_user", "app_db", "(owner)",
+		"database: CONNECT", "schema public: USAGE", "SELECT×12")
+
+	// Empty result explains PUBLIC/CONNECT instead of looking broken.
+	v.Update(roleAccessMsg{role: "lonely", rows: nil})
+	assertContains(t, v.View(), "Access · lonely", "no explicit", "PUBLIC")
 }

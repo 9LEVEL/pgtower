@@ -68,6 +68,13 @@ type describeMsg struct {
 	err  error
 }
 
+// roleAccessMsg carries the per-database access report for a role.
+type roleAccessMsg struct {
+	role string
+	rows []db.DBAccess
+	err  error
+}
+
 // execMsg is the result of an administrative action (create/drop/grant).
 type execMsg struct {
 	action string
@@ -239,6 +246,18 @@ func loadRoles(mgr *db.Manager) tea.Cmd {
 		}
 		rows, err := db.ListRoles(ctx, p)
 		return rolesMsg{rows: rows, err: err}
+	}
+}
+
+// loadRoleAccess probes, per database, what access a role has (ownership,
+// database grants, schema/table privileges). It connects to each database, so
+// it gets a generous timeout.
+func loadRoleAccess(mgr *db.Manager, role string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		rows, err := db.RoleAccess(ctx, mgr, role)
+		return roleAccessMsg{role: role, rows: rows, err: err}
 	}
 }
 

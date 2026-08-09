@@ -16,11 +16,10 @@ import (
 const (
 	formNoneKind = iota
 	formCreateRole
-	formGrant
 	formForceDrop
 	formConnLimit
 	formAlterAttrs
-	formRevoke
+	formGrantScope // choose the privilege after the database was picked
 )
 
 // confirm kinds distinguish which pending action the shared confirm modal is
@@ -30,6 +29,7 @@ const (
 	confirmDropRole
 	confirmResetPwd
 	confirmEscalate
+	confirmGrantExec // apply a grant/revoke after showing the exact statements
 )
 
 // role actions offered by the "Enter → manage" menu (indexes into roleMenuItems).
@@ -37,13 +37,22 @@ const (
 	menuResetPassword = iota
 	menuSetConnLimit
 	menuEditAttrs
+	menuShowAccess
 )
 
 var roleMenuItems = []string{
 	"Reset password (generate random)",
 	"Set connection limit",
 	"Edit attributes (LOGIN, SUPERUSER, BYPASSRLS…)",
+	"Show access (which databases & privileges)",
 }
+
+// finder flows: the reusable finder either jumps to a role (default) or picks a
+// database as the first step of a grant/revoke.
+const (
+	flowFindRole = iota
+	flowPickDB
+)
 
 // newPasswordLen is the length of a generated password (letters + digits).
 const newPasswordLen = 32
@@ -72,6 +81,15 @@ type rolesView struct {
 	pendingAttrsSQL  string
 	newPassword      string
 	pwdIterations    int
+
+	// grant/revoke flow: pick database (finder) → pick privilege (form) → confirm
+	finderFlow         int
+	grantRevoke        bool // true = revoke, false = grant
+	pendingGrantRole   string
+	pendingGrantDB     string
+	pendingGrantTarget string
+	pendingGrantAction string
+	pendingGrantStmts  []string
 
 	loading bool
 	err     error
@@ -165,6 +183,16 @@ func (v *rolesView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return loadRoles(v.mgr)
 
+	case roleAccessMsg:
+		if msg.err != nil {
+			v.status = stErr.Render("✗ access")
+			v.alert.show(v.width, v.height, "Access · "+msg.role, pgErrorText(msg.err), true)
+			return nil
+		}
+		v.status = ""
+		v.showAccessReport(msg.role, msg.rows)
+		return nil
+
 	case tea.KeyMsg:
 		return v.handleKey(msg)
 	}
@@ -184,11 +212,24 @@ func (v *rolesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	}
 	if v.finder.active {
 		res, cmd := v.finder.update(msg)
-		if res == finderSelect {
-			if idx := v.finder.selectedIndex(); idx >= 0 && idx < len(v.roles) {
+		switch res {
+		case finderSelect:
+			idx := v.finder.selectedIndex()
+			if v.finderFlow == flowPickDB {
+				v.finder.close()
+				v.finderFlow = flowFindRole
+				if idx >= 0 && idx < len(v.dbNames) {
+					v.pendingGrantDB = v.dbNames[idx]
+					return v.openScopeForm()
+				}
+				return nil
+			}
+			if idx >= 0 && idx < len(v.roles) {
 				v.tbl.SetCursor(idx)
 			}
 			v.finder.close()
+		case finderCancel:
+			v.finderFlow = flowFindRole
 		}
 		return cmd
 	}
@@ -229,9 +270,9 @@ func (v *rolesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case "n":
 		return v.openCreateForm()
 	case "g":
-		return v.openGrantForm()
+		return v.startGrantFlow(false)
 	case "R":
-		return v.openRevokeForm()
+		return v.startGrantFlow(true)
 	case "D":
 		return v.askDropRole()
 	case "F":
@@ -261,7 +302,10 @@ func (v *rolesView) openCreateForm() tea.Cmd {
 	})
 }
 
-func (v *rolesView) openGrantForm() tea.Cmd {
+// startGrantFlow begins a grant (or revoke): pick the database in the fuzzy
+// finder first — far better than cycling a select through many databases — then
+// the privilege, then a confirmation showing the exact statements.
+func (v *rolesView) startGrantFlow(revoke bool) tea.Cmd {
 	role, ok := v.selectedRole()
 	if !ok {
 		v.status = stWarnV.Render("select a role first")
@@ -271,15 +315,18 @@ func (v *rolesView) openGrantForm() tea.Cmd {
 		v.status = stWarnV.Render("database list not loaded yet")
 		return nil
 	}
-	labels := make([]string, len(grantScopes))
-	for i, sc := range grantScopes {
-		labels[i] = sc.Label()
+	v.pendingGrantRole = role.Name
+	v.grantRevoke = revoke
+	v.finderFlow = flowPickDB
+	items := make([]finderItem, len(v.dbNames))
+	for i, d := range v.dbNames {
+		items[i] = finderItem{index: i, label: d}
 	}
-	v.formKind = formGrant
-	return v.form.open("Grant · to "+role.Name, []formField{
-		selectField("database", "Database", v.dbNames),
-		selectField("scope", "Privilege", labels),
-	})
+	verb, prep := "Grant", "for"
+	if revoke {
+		verb, prep = "Revoke", "from"
+	}
+	return v.finder.open(verb+" · pick database "+prep+" "+role.Name, items)
 }
 
 // grantScopes maps the privilege select in the grant form to its scope, in the
@@ -304,23 +351,20 @@ func revocable(scopes []db.GrantScope) []db.GrantScope {
 	return out
 }
 
-func (v *rolesView) openRevokeForm() tea.Cmd {
-	role, ok := v.selectedRole()
-	if !ok {
-		v.status = stWarnV.Render("select a role first")
-		return nil
+// openScopeForm shows the privilege picker for the already-chosen database. The
+// scope list comes from grantScopes/revokeScopes so grant and revoke can never
+// offer different privileges (revoke just omits ownership).
+func (v *rolesView) openScopeForm() tea.Cmd {
+	scopes, verb := grantScopes, "Grant"
+	if v.grantRevoke {
+		scopes, verb = revokeScopes, "Revoke"
 	}
-	if len(v.dbNames) == 0 {
-		v.status = stWarnV.Render("database list not loaded yet")
-		return nil
-	}
-	labels := make([]string, len(revokeScopes))
-	for i, sc := range revokeScopes {
+	labels := make([]string, len(scopes))
+	for i, sc := range scopes {
 		labels[i] = sc.Label()
 	}
-	v.formKind = formRevoke
-	return v.form.open("Revoke · from "+role.Name, []formField{
-		selectField("database", "Database", v.dbNames),
+	v.formKind = formGrantScope
+	return v.form.open(verb+" · "+v.pendingGrantRole+" on "+v.pendingGrantDB, []formField{
 		selectField("scope", "Privilege", labels),
 	})
 }
@@ -419,8 +463,64 @@ func (v *rolesView) runMenuAction(idx int) tea.Cmd {
 		return v.openConnLimitForm()
 	case menuEditAttrs:
 		return v.openAttrsForm()
+	case menuShowAccess:
+		return v.openAccess()
 	}
 	return nil
+}
+
+// openAccess probes, per database, which access the selected role has and shows
+// it in a scrollable report. It fixes the "I granted to the wrong place and now
+// can't see it" trap: the grant presets touch schema/table privileges inside a
+// database, which no plain role listing reveals.
+func (v *rolesView) openAccess() tea.Cmd {
+	role, ok := v.selectedRole()
+	if !ok {
+		v.menu.close()
+		return nil
+	}
+	v.menu.close()
+	v.status = stStatus.Render("probing access for " + role.Name + "…")
+	return loadRoleAccess(v.mgr, role.Name)
+}
+
+// showAccessReport renders the per-database access of a role into the alert box.
+func (v *rolesView) showAccessReport(role string, rows []db.DBAccess) {
+	if len(rows) == 0 {
+		body := stValue.Render(role) + stLabel.Render(" has no explicit database, schema or table grants.") +
+			"\n\n" + stKeyHint.Render("PUBLIC usually holds CONNECT, so the role may still connect to databases.")
+		v.alert.show(v.width, v.height, "Access · "+role, body, false)
+		return
+	}
+	var b strings.Builder
+	for i, a := range rows {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		head := stValue.Render(a.Database)
+		if a.IsOwner {
+			head += "  " + stGood.Render("(owner)")
+		}
+		b.WriteString(head + "\n")
+		if len(a.DBPrivs) > 0 {
+			b.WriteString("  " + stLabel.Render("database: ") + strings.Join(a.DBPrivs, ", ") + "\n")
+		}
+		if len(a.Schema) > 0 {
+			b.WriteString("  " + stLabel.Render("schema public: ") + strings.Join(a.Schema, ", ") + "\n")
+		}
+		if len(a.Tables) > 0 {
+			parts := make([]string, len(a.Tables))
+			for j, t := range a.Tables {
+				parts[j] = fmt.Sprintf("%s×%d", t.Privilege, t.Count)
+			}
+			b.WriteString("  " + stLabel.Render("tables: ") + strings.Join(parts, ", ") + "\n")
+		}
+		if a.Err != "" {
+			b.WriteString("  " + stWarnV.Render("could not read: "+a.Err) + "\n")
+		}
+	}
+	b.WriteString("\n" + stKeyHint.Render("Databases with no explicit grant are omitted; PUBLIC usually holds CONNECT."))
+	v.alert.show(v.width, v.height, "Access · "+role, b.String(), false)
 }
 
 // openConnLimitForm opens the connection-limit editor for the selected role,
@@ -460,6 +560,11 @@ func (v *rolesView) onConfirmYes() tea.Cmd {
 	kind := v.confirmKind
 	v.confirmKind = confirmNoneKind
 	switch kind {
+	case confirmGrantExec:
+		stmts := v.pendingGrantStmts
+		v.pendingGrantStmts = nil
+		return execStatements(v.mgr, v.pendingGrantTarget, v.pendingGrantAction, stmts)
+
 	case confirmEscalate:
 		sql := v.pendingAttrsSQL
 		v.pendingAttrsSQL = ""
@@ -523,33 +628,39 @@ func (v *rolesView) submitForm() tea.Cmd {
 		v.formKind = formNoneKind
 		return execStatements(v.mgr, "", "create role "+name, []string{sql})
 
-	case formGrant:
-		role, ok := v.selectedRole()
-		if !ok {
-			v.form.close()
-			v.formKind = formNoneKind
-			return nil
-		}
-		_, database := v.form.selected("database")
+	case formGrantScope:
 		scopeIdx, _ := v.form.selected("scope")
-		targetDB, stmts := db.BuildGrant(grantScopes[scopeIdx], database, role.Name)
+		scopes, verb, verbCap := grantScopes, "grant", "Grant"
+		if v.grantRevoke {
+			scopes, verb, verbCap = revokeScopes, "revoke", "Revoke"
+		}
 		v.form.close()
 		v.formKind = formNoneKind
-		return execStatements(v.mgr, targetDB, fmt.Sprintf("grant %s → %s", role.Name, database), stmts)
-
-	case formRevoke:
-		role, ok := v.selectedRole()
-		if !ok {
-			v.form.close()
-			v.formKind = formNoneKind
+		if scopeIdx < 0 || scopeIdx >= len(scopes) {
 			return nil
 		}
-		_, database := v.form.selected("database")
-		scopeIdx, _ := v.form.selected("scope")
-		targetDB, stmts := db.BuildRevoke(revokeScopes[scopeIdx], database, role.Name)
-		v.form.close()
-		v.formKind = formNoneKind
-		return execStatements(v.mgr, targetDB, fmt.Sprintf("revoke %s → %s", role.Name, database), stmts)
+		scope := scopes[scopeIdx]
+		var targetDB string
+		var stmts []string
+		if v.grantRevoke {
+			targetDB, stmts = db.BuildRevoke(scope, v.pendingGrantDB, v.pendingGrantRole)
+		} else {
+			targetDB, stmts = db.BuildGrant(scope, v.pendingGrantDB, v.pendingGrantRole)
+		}
+		if len(stmts) == 0 {
+			v.status = stWarnV.Render("nothing to " + verb)
+			return nil
+		}
+		// Confirm before touching privileges: show the role, database and the
+		// exact statements, so a grant on the wrong role/database is caught here.
+		v.pendingGrantTarget = targetDB
+		v.pendingGrantStmts = stmts
+		v.pendingGrantAction = fmt.Sprintf("%s %s → %s", verb, v.pendingGrantRole, v.pendingGrantDB)
+		v.confirmKind = confirmGrantExec
+		body := fmt.Sprintf("%s on %s for %s\n\n%s\n\n%s",
+			verbCap, stValue.Render(v.pendingGrantDB), stValue.Render(v.pendingGrantRole),
+			stLabel.Render(scope.Label()), strings.Join(stmts, "\n"))
+		return v.confirm.ask(verbCap+" privileges?", body)
 
 	case formAlterAttrs:
 		role, ok := v.selectedRole()

@@ -444,6 +444,79 @@ func TestDashboardCountsPgtuiConnsLive(t *testing.T) {
 	}
 }
 
+// TestRoleAccessLive grants the read-only preset on a throwaway database and
+// checks RoleAccess surfaces it — schema-public USAGE and SELECT on the table —
+// which is exactly the access no plain role listing reveals.
+func TestRoleAccessLive(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	mgr, err := db.NewManager(ctx, dsn, "postgres")
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	defer mgr.Close()
+	admin, _ := mgr.Pool(ctx, "postgres")
+
+	const role = "pgtui_access_selftest"
+	const database = "pgtui_access_selftest_db"
+	cleanup := func() {
+		_, _ = db.ExecAdmin(ctx, admin, "DROP DATABASE IF EXISTS "+db.QuoteIdent(database))
+		_, _ = db.ExecAdmin(ctx, admin, "DROP ROLE IF EXISTS "+db.QuoteIdent(role))
+	}
+	cleanup()
+	defer cleanup()
+
+	if _, err := db.ExecAdmin(ctx, admin, db.BuildCreateRole(role, "s3cr3t", true, false, false)); err != nil {
+		t.Fatalf("CREATE ROLE: %v", err)
+	}
+	if _, err := db.ExecAdmin(ctx, admin, db.BuildCreateDatabase(database, "postgres")); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	target, err := mgr.Pool(ctx, database)
+	if err != nil {
+		t.Fatalf("Pool(%s): %v", database, err)
+	}
+	if _, err := db.ExecAdmin(ctx, target, "CREATE TABLE t (id int)"); err != nil {
+		t.Fatalf("CREATE TABLE: %v", err)
+	}
+	_, stmts := db.BuildGrant(db.GrantSchemaReadOnly, database, role)
+	for _, s := range stmts {
+		if _, err := db.ExecAdmin(ctx, target, s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
+
+	acc, err := db.RoleAccess(ctx, mgr, role)
+	if err != nil {
+		t.Fatalf("RoleAccess: %v", err)
+	}
+	var found *db.DBAccess
+	for i := range acc {
+		if acc[i].Database == database {
+			found = &acc[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("RoleAccess did not report %s after a read-only grant; got %+v", database, acc)
+	}
+	if len(found.Schema) == 0 {
+		t.Errorf("expected an explicit schema-public grant, got %+v", *found)
+	}
+	var sawSelect bool
+	for _, tp := range found.Tables {
+		if tp.Privilege == "SELECT" && tp.Count >= 1 {
+			sawSelect = true
+		}
+	}
+	if !sawSelect {
+		t.Errorf("expected SELECT on >= 1 table, got tables=%+v", found.Tables)
+	}
+}
+
 func hasRole(rs []db.Role, name string) bool {
 	for _, r := range rs {
 		if r.Name == name {
