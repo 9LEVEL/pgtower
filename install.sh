@@ -1,7 +1,7 @@
 #!/bin/sh
 # pgtower installer — fetches the latest stable static binary from GitHub Releases.
 #
-#   curl -fsSL https://pgtower.sh | sh
+#   curl -fsSL https://pgtower.dev | sh
 #   curl -fsSL https://raw.githubusercontent.com/9level/pgtower/master/install.sh | sh
 #
 # pgtower was called pgtui up to v0.9: an existing pgtui install is upgraded in

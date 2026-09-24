@@ -81,5 +81,5 @@ func replaceWithAlias(exe string) error {
 func manualRename(dir string) string {
 	return fmt.Sprintf("Finish the rename with root rights:\n\n"+
 		"  sudo mv %[1]s/pgtui %[1]s/pgtower && sudo ln -s pgtower %[1]s/pgtui\n\n"+
-		"or re-run the installer: curl -fsSL https://pgtower.sh | sh", dir)
+		"or re-run the installer:\n\n  curl -fsSL https://raw.githubusercontent.com/9level/pgtower/master/install.sh | sh", dir)
 }

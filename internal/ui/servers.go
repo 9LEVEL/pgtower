@@ -450,7 +450,7 @@ func renameNotice(bin update.NameResult, moved []string, moveErr error, legacyEn
 		danger = true
 		b.WriteString("\nSome config could not be moved (it is still read from the old place): " + moveErr.Error() + "\n")
 	}
-	b.WriteString("\nNew home: https://pgtower.sh · https://github.com/9level/pgtower")
+	b.WriteString("\nNew home: https://pgtower.dev · https://github.com/9level/pgtower")
 	return "Welcome to pgtower", b.String(), danger, true
 }
 
