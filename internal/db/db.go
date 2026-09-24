@@ -11,6 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// connectTimeout bounds how long opening a connection may take before the
+// server is reported as not responding.
+const connectTimeout = 8 * time.Second
+
 // Manager keeps one pool per database. The first pool (AdminDB) is used for
 // cluster queries; additional pools are created on demand when navigating to
 // another database's tables or running queries against it.
@@ -37,7 +41,7 @@ func NewManager(ctx context.Context, dsn, adminDB string) (*Manager, error) {
 	cfg.MinConns = 0
 	cfg.MaxConnIdleTime = 20 * time.Second
 	cfg.HealthCheckPeriod = 15 * time.Second
-	cfg.ConnConfig.ConnectTimeout = 8 * time.Second
+	cfg.ConnConfig.ConnectTimeout = connectTimeout
 	// Identifies the origin of connections in pg_stat_activity.
 	if cfg.ConnConfig.RuntimeParams == nil {
 		cfg.ConnConfig.RuntimeParams = map[string]string{}
@@ -75,7 +79,7 @@ func (m *Manager) Pool(ctx context.Context, dbname string) (*pgxpool.Pool, error
 	if err != nil {
 		return nil, fmt.Errorf("connect to %q: %w", dbname, err)
 	}
-	pingCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	pingCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 	if err := p.Ping(pingCtx); err != nil {
 		p.Close()
