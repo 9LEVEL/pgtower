@@ -1,0 +1,17 @@
+# Servers used by docs/demo/demo.tape (throwaway local clusters, see demo.tape).
+version: 2
+default: prod-db1
+connections:
+  - name: prod-db1
+    url: postgres://postgres:demo@127.0.0.1:5434/postgres?sslmode=disable
+    tag: prod
+    host_ram_mb: 16384
+    host_cpus: 8
+  - name: dev-local
+    url: postgres://postgres:demo@127.0.0.1:5435/postgres?sslmode=disable
+    tag: dev
+    host_ram_mb: 8192
+    host_cpus: 4
+  - name: staging-eu
+    url: postgres://postgres:demo@127.0.0.1:5499/postgres?sslmode=disable
+    tag: staging

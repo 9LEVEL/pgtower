@@ -12,15 +12,10 @@ destructive mistakes.
 
 Single static binary, no dependencies, no container required.
 
-<!-- TODO: add a demo GIF here -->
+![pgtui demo: dashboard, sessions, blocking tree, roles, databases, switching servers and the tuning advisor](docs/demo.gif)
 
-```
- pgtui  v0.9.0              PROD  db1  postgres@db1:5432 • admin db: postgres  9level.dev
- 1 Dashboard  2 Databases  3 Query  4 Locks  5 Sessions  6 Roles  7 Tuning
- ╭ CONNECTIONS ╮ ╭ CACHE HIT ╮ ╭ STORAGE ─╮ ╭ UPTIME ─╮
- │ 40 / 50     │ │ 100.00%   │ │ 217 MB   │ │ 2h 27m  │
- ╰─────────────╯ ╰───────────╯ ╰──────────╯ ╰─────────╯
-```
+<sub>Recorded with [VHS](https://github.com/charmbracelet/vhs) against throwaway clusters —
+regenerate with `vhs docs/demo/demo.tape`.</sub>
 
 ## Why pgtui?
 
