@@ -2,9 +2,10 @@
 #
 # Needs two throwaway PostgreSQL clusters with demo data (ports 5434 "prod-db1"
 # and 5435 "dev-local", password "demo") and the simulated traffic running:
-#   DURATION=900 docs/demo/activity.sh
+#   docs/demo/setup.sh && DURATION=900 docs/demo/activity.sh
+# Remove the clusters afterwards with: docs/demo/setup.sh --drop
 # Port 5499 ("staging-eu") is intentionally closed, to show a connection error.
-# Set PGTUI_DEMO_BIN to a directory holding a release-tagged pgtui build so the
+# Set PGTOWER_DEMO_BIN to a directory holding a release-tagged pgtower build so the
 # header shows a version instead of "dev".
 
 Output docs/demo.gif
@@ -21,12 +22,12 @@ Set Framerate 24
 Set PlaybackSpeed 1.0
 
 Hide
-Type "export PATH=${PGTUI_DEMO_BIN:-$PATH}:$PATH PGTUI_CONFIG=docs/demo/config.yml.demo PGTUI_UPDATE_CHECK=0 PS1='$ ' && clear"
+Type "export PATH=${PGTOWER_DEMO_BIN:-$PATH}:$PATH PGTOWER_CONFIG=docs/demo/config.yml.demo PGTOWER_UPDATE_CHECK=0 PS1='$ ' && clear"
 Enter
 Show
 
 Sleep 500ms
-Type "pgtui"
+Type "pgtower"
 Sleep 400ms
 Enter
 Sleep 4.5s

@@ -1,9 +1,9 @@
-# binários
-/pgtui
+# binaries
+/pgtower
 /bin/
 /dist/
 
-# segredos / ambiente
+# secrets / environment
 .env
 .env.prod
 *.local
@@ -11,6 +11,7 @@ config.yml
 config.yaml
 *.v1.bak
 *.v1.bak.*
+*.pgtui
 
 # go
 /vendor/
