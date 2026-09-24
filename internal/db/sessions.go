@@ -15,7 +15,7 @@ type Session struct {
 	Query      string
 }
 
-// ListSessions lists client connections (except pgtui's own), active first,
+// ListSessions lists client connections (except pgtower's own), active first,
 // then by oldest.
 func ListSessions(ctx context.Context, p Pinger) ([]Session, error) {
 	rows, err := p.Query(ctx, `

@@ -111,7 +111,7 @@ func (m *Model) overlayHelp(bg string) string {
 	wrap := lipgloss.NewStyle().Width(w)
 
 	// --- About / identity block ---
-	ident := stTitle.Render(" pgtui ") + stHeaderVer.Render(appVersion(m.version)) +
+	ident := stTitle.Render(" pgtower ") + stHeaderVer.Render(appVersion(m.version)) +
 		stKeyHint.Render("   ") + stBrand.Render(brand)
 	desc := wrap.Foreground(colMuted).Render(
 		"PostgreSQL administration TUI — dashboard, databases & tables, query runner, locks, sessions and roles.")

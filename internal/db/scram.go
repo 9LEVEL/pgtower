@@ -15,7 +15,7 @@ const (
 	// above NIST SP 800-63B's 10000 minimum) to make the stored verifier
 	// costlier to brute-force, while staying cheap enough that the server's
 	// per-login verification stays in the low-millisecond range. Override with
-	// the PGTUI_SCRAM_ITERATIONS environment variable.
+	// the PGTOWER_SCRAM_ITERATIONS environment variable.
 	SCRAMDefaultIterations = 15000
 
 	scramMinIterations = 4096    // RFC 5802 / PostgreSQL floor — never weaker.

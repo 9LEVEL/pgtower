@@ -10,8 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/9level/pgtui/internal/config"
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/config"
+	"github.com/9level/pgtower/internal/db"
 )
 
 type tuningSection int
@@ -539,7 +539,7 @@ func (v *tuningView) advisorView() string {
 		host = stLabel.Render("  " + strings.Join(parts, " · "))
 	} else {
 		host = stWarnV.Render("  host RAM/cores unknown") +
-			stKeyHint.Render(" — set PGTUI_HOST_RAM_MB and PGTUI_HOST_CPUS for concrete targets")
+			stKeyHint.Render(" — set PGTOWER_HOST_RAM_MB and PGTOWER_HOST_CPUS for concrete targets")
 	}
 
 	header := stLabel.Render(pad("  SETTING", 24)) + stLabel.Render(pad("CURRENT", 13)) +

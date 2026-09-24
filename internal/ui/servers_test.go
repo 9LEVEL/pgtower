@@ -10,17 +10,18 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/9level/pgtui/internal/config"
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/config"
+	"github.com/9level/pgtower/internal/db"
+	"github.com/9level/pgtower/internal/update"
 )
 
 // isolatedStore returns an empty store whose saves land in a temp dir.
 func isolatedStore(t *testing.T) *config.Store {
 	t.Helper()
-	for _, k := range []string{"DATABASE_URL", "PGHOST", "PGTUI_CONFIG"} {
+	for _, k := range []string{"DATABASE_URL", "PGHOST", "PGTOWER_CONFIG", "PGTUI_CONFIG", "PGTUI_CONFIG_DIR"} {
 		t.Setenv(k, "")
 	}
-	t.Setenv("PGTUI_CONFIG_DIR", t.TempDir())
+	t.Setenv("PGTOWER_CONFIG_DIR", t.TempDir())
 	s, err := config.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +138,7 @@ func TestAddServerSavesAndConnects(t *testing.T) {
 	if len(store.Connections) != 1 || store.Connections[0].Name != "local" {
 		t.Fatalf("server not added: %+v", store.Connections)
 	}
-	b, err := os.ReadFile(filepath.Join(os.Getenv("PGTUI_CONFIG_DIR"), "config.yml"))
+	b, err := os.ReadFile(filepath.Join(os.Getenv("PGTOWER_CONFIG_DIR"), "config.yml"))
 	if err != nil || !strings.Contains(string(b), "name: local") {
 		t.Errorf("the new server must be saved to config.yml: %v\n%s", err, b)
 	}
@@ -159,7 +160,7 @@ func TestServerFormValidation(t *testing.T) {
 	assertContains(t, tm.View(), "name is required")
 }
 
-// The user-reported case: an unreachable server used to kill pgtui with
+// The user-reported case: an unreachable server used to kill pgtower with
 // `ping "postgres": context deadline exceeded`. Now it explains itself and
 // leaves the user on the Servers screen.
 func TestConnectFailureIsExplained(t *testing.T) {
@@ -228,8 +229,8 @@ func TestConnectRefusedEndToEnd(t *testing.T) {
 
 func TestMigrationNoticeShownOnce(t *testing.T) {
 	store := isolatedStore(t)
-	store.Migration = &config.Migration{From: []string{"config.yml (v1)"}, Path: "/opt/pgtui/config.yml",
-		Backups: []string{"/opt/pgtui/config.yml.v1.bak"}, Imported: []string{"10.0.0.5"}}
+	store.Migration = &config.Migration{From: []string{"config.yml (v1)"}, Path: "/opt/pgtower/config.yml",
+		Backups: []string{"/opt/pgtower/config.yml.v1.bak"}, Imported: []string{"10.0.0.5"}}
 	m := New(store, "v0.9.0", nil)
 	var tm tea.Model = m
 	m.Init()
@@ -310,8 +311,29 @@ func TestPageAlwaysFillsTerminal(t *testing.T) {
 		if len(page) != 37 {
 			t.Errorf("body of %d lines: page has %d lines, want 37", n, len(page))
 		}
-		if !strings.Contains(page[0], "pgtui") {
+		if !strings.Contains(page[0], "pgtower") {
 			t.Errorf("body of %d lines: header scrolled away, first line %q", n, page[0])
 		}
+	}
+}
+
+func TestRenameNotice(t *testing.T) {
+	if _, _, _, ok := renameNotice(update.NameResult{}, nil, nil, nil); ok {
+		t.Error("a clean pgtower install must not show the rename notice")
+	}
+	title, body, danger, ok := renameNotice(
+		update.NameResult{Renamed: true, Path: "/usr/local/bin/pgtower", Alias: "/usr/local/bin/pgtui"},
+		[]string{"/opt/pgtui → /opt/pgtower"}, nil, []string{"PGTUI_REFRESH_SECONDS"})
+	if !ok || danger || title != "Welcome to pgtower" {
+		t.Fatalf("ok=%v danger=%v title=%q", ok, danger, title)
+	}
+	for _, want := range []string{"pgtui is now pgtower", "/usr/local/bin/pgtower", "shortcut",
+		"/opt/pgtui → /opt/pgtower", "PGTUI_REFRESH_SECONDS"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("notice should mention %q:\n%s", want, body)
+		}
+	}
+	if _, body, danger, _ := renameNotice(update.NameResult{Manual: "sudo mv …"}, nil, nil, nil); !danger || !strings.Contains(body, "sudo mv") {
+		t.Error("a rename that needs root must be flagged with the manual command")
 	}
 }

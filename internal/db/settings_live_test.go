@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/db"
 )
 
 // TestReadTuningSettingsLive reads the advisor GUCs from a live cluster, parses

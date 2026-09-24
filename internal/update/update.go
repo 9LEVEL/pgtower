@@ -1,4 +1,4 @@
-// Package update checks GitHub Releases for a newer pgtui and can replace the
+// Package update checks GitHub Releases for a newer pgtower and can replace the
 // running binary in place. Everything is best-effort and offline-safe: a failed
 // network call never breaks the app, it just means "no update offered".
 package update
@@ -20,17 +20,17 @@ import (
 	"time"
 )
 
-// Repo is the canonical GitHub "owner/name" pgtui is released from.
-const Repo = "9level/pgtui"
+// Repo is the canonical GitHub "owner/name" pgtower is released from.
+const Repo = "9level/pgtower"
 
-// httpGet issues a GET with a pgtui User-Agent (GitHub requires one) bound to
+// httpGet issues a GET with a pgtower User-Agent (GitHub requires one) bound to
 // the caller's context.
 func httpGet(ctx context.Context, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "pgtui-updater")
+	req.Header.Set("User-Agent", "pgtower-updater")
 	req.Header.Set("Accept", "application/vnd.github+json")
 	return http.DefaultClient.Do(req)
 }
@@ -111,10 +111,10 @@ func IsNewer(latest, current string) bool {
 // AssetName is the release asset filename for the running platform, matching the
 // names produced by the Makefile and consumed by install.sh.
 func AssetName(version string) string {
-	return fmt.Sprintf("pgtui-%s-%s-%s", version, runtime.GOOS, runtime.GOARCH)
+	return fmt.Sprintf("pgtower-%s-%s-%s", version, runtime.GOOS, runtime.GOARCH)
 }
 
-// ManualError means pgtui could not replace its own binary (usually because the
+// ManualError means pgtower could not replace its own binary (usually because the
 // install directory needs root). It carries a ready-to-paste instruction.
 type ManualError struct {
 	Dir  string
@@ -153,7 +153,7 @@ func SelfUpdate(ctx context.Context, repo, version string) error {
 
 	// A temp file in the SAME directory guarantees the final rename is atomic
 	// (same filesystem) and doubles as the writability probe.
-	tmp := filepath.Join(dir, ".pgtui.update.tmp")
+	tmp := filepath.Join(dir, ".pgtower.update.tmp")
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
 		return &ManualError{Dir: dir, Repo: repo}
@@ -251,7 +251,7 @@ func markerPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "pgtui", "no-update-check"), nil
+	return filepath.Join(dir, "pgtower", "no-update-check"), nil
 }
 
 // OptedOut reports whether the user asked to never be prompted again.

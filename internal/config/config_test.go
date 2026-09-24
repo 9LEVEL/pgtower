@@ -13,12 +13,17 @@ import (
 func isolateEnv(t *testing.T) string {
 	t.Helper()
 	for _, k := range []string{"DATABASE_URL", "PGHOST", "PGPORT", "PGUSER", "PGPASSWORD",
-		"PGDATABASE", "PGSSLMODE", "PGTUI_UPDATE_CHECK", "PGTUI_REFRESH_SECONDS",
-		"PGTUI_HOST_RAM_MB", "PGTUI_HOST_CPUS", "PGTUI_SCRAM_ITERATIONS", "PGTUI_CONFIG"} {
+		"PGDATABASE", "PGSSLMODE"} {
 		t.Setenv(k, "")
 	}
+	// Both spellings: PGTUI_* is still read as a fallback.
+	for _, k := range []string{"UPDATE_CHECK", "REFRESH_SECONDS", "HOST_RAM_MB", "HOST_CPUS",
+		"SCRAM_ITERATIONS", "CONFIG", "CONFIG_DIR"} {
+		t.Setenv(envPrefix+k, "")
+		t.Setenv(legacyEnvPrefix+k, "")
+	}
 	dir := t.TempDir()
-	t.Setenv("PGTUI_CONFIG_DIR", dir)
+	t.Setenv("PGTOWER_CONFIG_DIR", dir)
 	return dir
 }
 
@@ -192,7 +197,7 @@ func TestEnvOverridesConfig(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "config.yml"),
 		"version: 2\ndefault: file\nrefresh_seconds: 9\nconnections:\n  - name: file\n    url: postgres://file@10.0.0.5:5432/filedb\n")
 	t.Setenv("DATABASE_URL", "postgres://envuser@192.0.2.9:5432/envdb?sslmode=disable")
-	t.Setenv("PGTUI_REFRESH_SECONDS", "3")
+	t.Setenv("PGTOWER_REFRESH_SECONDS", "3")
 
 	s := mustLoad(t)
 	cfg := mustResolveInitial(t, s)
@@ -200,7 +205,7 @@ func TestEnvOverridesConfig(t *testing.T) {
 		t.Errorf("env DATABASE_URL should win at startup, got %+v", cfg)
 	}
 	if cfg.RefreshSeconds != 3 {
-		t.Errorf("env PGTUI_REFRESH_SECONDS should override config.yml, got %d", cfg.RefreshSeconds)
+		t.Errorf("env PGTOWER_REFRESH_SECONDS should override config.yml, got %d", cfg.RefreshSeconds)
 	}
 	// The env connection is session-only: saving must not persist it.
 	if err := s.Save(); err != nil {
@@ -287,8 +292,8 @@ func TestPasswordEnv(t *testing.T) {
 func TestNewerFormatIsRefused(t *testing.T) {
 	dir := isolateEnv(t)
 	writeFile(t, filepath.Join(dir, "config.yml"), "version: 99\n")
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "update pgtui") {
-		t.Errorf("a newer config format should ask to update pgtui, got %v", err)
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "update pgtower") {
+		t.Errorf("a newer config format should ask to update pgtower, got %v", err)
 	}
 }
 

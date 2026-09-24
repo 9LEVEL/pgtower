@@ -305,7 +305,7 @@ func Recommend(in TuningInput) []TuningRec {
 		sb.Verdict = rateFactor(in.SharedBuffers, target)
 		sb.Note = "≈ 25% of RAM"
 	} else {
-		sb.Verdict, sb.Note = VerdictInfo, "set PGTUI_HOST_RAM_MB for a target (~25% of RAM)"
+		sb.Verdict, sb.Note = VerdictInfo, "set PGTOWER_HOST_RAM_MB for a target (~25% of RAM)"
 	}
 	recs = append(recs, sb)
 
@@ -322,7 +322,7 @@ func Recommend(in TuningInput) []TuningRec {
 		ec.Verdict = rateFactor(in.EffectiveCache, in.RAMBytes*2/3)
 		ec.Note = "≈ 66% of RAM"
 	default:
-		ec.Verdict, ec.Note = VerdictInfo, "set PGTUI_HOST_RAM_MB for a target (~66% of RAM)"
+		ec.Verdict, ec.Note = VerdictInfo, "set PGTOWER_HOST_RAM_MB for a target (~66% of RAM)"
 	}
 	recs = append(recs, ec)
 
@@ -357,7 +357,7 @@ func Recommend(in TuningInput) []TuningRec {
 		mw.Verdict = rateFactor(in.MaintWorkMem, target)
 		mw.Note = "≈ RAM/16, capped at 2 GB"
 	} else {
-		mw.Verdict, mw.Note = VerdictInfo, "set PGTUI_HOST_RAM_MB for a target (~RAM/16)"
+		mw.Verdict, mw.Note = VerdictInfo, "set PGTOWER_HOST_RAM_MB for a target (~RAM/16)"
 	}
 	recs = append(recs, mw)
 
@@ -371,7 +371,7 @@ func Recommend(in TuningInput) []TuningRec {
 		mc.Verdict = VerdictOK
 		mc.Note = fmt.Sprintf("reasonable for %d CPUs", in.CPUs)
 	default:
-		mc.Verdict, mc.Note = VerdictInfo, "set PGTUI_HOST_CPUS to assess against cores"
+		mc.Verdict, mc.Note = VerdictInfo, "set PGTOWER_HOST_CPUS to assess against cores"
 	}
 	recs = append(recs, mc)
 

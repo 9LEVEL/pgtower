@@ -144,7 +144,7 @@ func ApplyHBAContent(ctx context.Context, mgr *Manager, dsn, newContent string) 
 		return fmt.Errorf("read pg_hba.conf: %w", err)
 	}
 
-	if err := writeServerFile(ctx, admin, path+".pgtui.bak", old); err != nil {
+	if err := writeServerFile(ctx, admin, path+".pgtower.bak", old); err != nil {
 		return fmt.Errorf("could not write backup (aborted, nothing changed): %w", err)
 	}
 	rollback := func() {

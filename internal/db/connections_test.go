@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/db"
 )
 
 func TestBuildConnLimit(t *testing.T) {

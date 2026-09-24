@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/db"
 )
 
 func TestBuildTuningInput(t *testing.T) {
@@ -137,7 +137,7 @@ func TestRecommend(t *testing.T) {
 
 	// RAM unknown -> memory recs are info with a hint.
 	unknown := byName(db.Recommend(db.TuningInput{MaxConnections: 100, SharedBuffers: 128 << 20}))
-	if g := unknown["shared_buffers"]; g.Verdict != db.VerdictInfo || !strings.Contains(g.Note, "PGTUI_HOST_RAM_MB") {
+	if g := unknown["shared_buffers"]; g.Verdict != db.VerdictInfo || !strings.Contains(g.Note, "PGTOWER_HOST_RAM_MB") {
 		t.Errorf("unknown-RAM shared_buffers = %+v", g)
 	}
 }

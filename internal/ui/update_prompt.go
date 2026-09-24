@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/9level/pgtui/internal/update"
+	"github.com/9level/pgtower/internal/update"
 )
 
 // updateCheckedMsg carries the newest release tag found on GitHub (or an error,
@@ -80,7 +80,7 @@ func optOutUpdatesCmd() tea.Cmd {
 // renderUpdating draws the "downloading…" box shown while a self-update runs.
 func (m *Model) renderUpdating() string {
 	box := stModal.BorderForeground(colAccent).Render(
-		stKey.Render("Updating pgtui…") + "\n\n" +
+		stKey.Render("Updating pgtower…") + "\n\n" +
 			stKeyHint.Render("downloading "+m.updateLatest+" and verifying its checksum"))
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }

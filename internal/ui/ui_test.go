@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/9level/pgtui/internal/config"
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/config"
+	"github.com/9level/pgtower/internal/db"
 )
 
 func TestPgErrorText(t *testing.T) {
@@ -370,7 +370,7 @@ func TestTuningView(t *testing.T) {
 	v2 := newTuningView(&config.Config{}, nil)
 	v2.SetSize(120, 40)
 	v2.Update(tuningMsg{recs: db.Recommend(db.TuningInput{MaxConnections: 100, SharedBuffers: 128 << 20})})
-	assertContains(t, v2.View(), "host RAM/cores unknown", "PGTUI_HOST_RAM_MB")
+	assertContains(t, v2.View(), "host RAM/cores unknown", "PGTOWER_HOST_RAM_MB")
 }
 
 // TestTuningSettingsSection drives the ALTER SYSTEM editor: list, filter, edit
@@ -740,7 +740,7 @@ func TestQuitConfirm(t *testing.T) {
 	if !m.quitConfirm.active || m.quitting {
 		t.Fatal("'q' should open the quit confirmation, not quit")
 	}
-	assertContains(t, tm.View(), "Quit pgtui?")
+	assertContains(t, tm.View(), "Quit pgtower?")
 
 	// 'n' dismisses; the app keeps running.
 	tm, _ = tm.Update(key("n"))
@@ -770,7 +770,7 @@ func TestQuitConfirm(t *testing.T) {
 
 // TestDashboardAutoRefresh guards the refresh loop: a tick must reschedule the
 // next reload (nil would freeze the dashboard), and the Connections card must
-// disclose how many backends are pgtui's own.
+// disclose how many backends are pgtower's own.
 func TestDashboardAutoRefresh(t *testing.T) {
 	d := newDashboardView(&config.Config{RefreshSeconds: 5}, nil)
 	d.SetSize(120, 40)
@@ -780,10 +780,10 @@ func TestDashboardAutoRefresh(t *testing.T) {
 	}
 
 	d.Update(dashboardMsg{data: db.DashboardData{
-		Version: "PostgreSQL 18.4", MaxConns: 100, TotalConns: 40, PgtuiConns: 18,
+		Version: "PostgreSQL 18.4", MaxConns: 100, TotalConns: 40, OwnConns: 18,
 		Active: 3, Idle: 30, TotalSize: "1 MB", StartedAt: time.Now(),
 	}})
-	assertContains(t, d.View(), "40 / 100", "incl. pgtui 18", "live", "auto-refresh every 5s")
+	assertContains(t, d.View(), "40 / 100", "incl. pgtower 18", "live", "auto-refresh every 5s")
 }
 
 func assertContains(t *testing.T, s string, subs ...string) {
