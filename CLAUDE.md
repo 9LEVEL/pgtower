@@ -28,12 +28,19 @@ Before any commit: `gofmt -l .` empty, `go vet ./...` clean, `go test ./...` gre
 Resolution order, highest first: **environment variables → `config.yml` →
 defaults**. There is **no `.env`-file support** — env vars only, plus the file.
 
-- `config.yml` is searched in `./`, the binary's dir, `~/.config/pgtui/`,
-  `/opt/pgtui/`, `/etc/pgtui/` (override with `PGTUI_CONFIG` for an explicit file
-  or `PGTUI_CONFIG_DIR` for a directory). Template: `config.yml.example`.
-- Keys: `database_url` (or `host`/`port`/`user`/`password`/`database`/`sslmode`),
-  `refresh_seconds`, `scram_iterations`, `host_ram_mb`, `host_cpus`,
-  `update_check`. Same settings exist as env vars (`DATABASE_URL`, `PGTUI_*`).
+- `config.yml` (format `version: 2`) holds a list of named `connections` plus
+  global settings, and is **written by the app** (Servers screen, `S`) — keep
+  `config.Store.Save` the only writer; it is atomic and `0600`. Template and key
+  reference: `config.yml.example`.
+- Searched in `./`, the binary's dir, `~/.config/pgtui/`, `/opt/pgtui/`,
+  `/etc/pgtui/`; `PGTUI_CONFIG` (file) or `PGTUI_CONFIG_DIR` (dir) replace the
+  search (tests rely on this for isolation).
+- `DATABASE_URL` / `PG*` add a session-only connection named `env`; it is never
+  saved. `PGTUI_*` override the settings.
+- Legacy (v0.8-) single-connection files and pre-v0.8 `.env` files are migrated
+  on load by `internal/config/migrate.go` (backup `*.v1.bak`, then rewrite).
+  Any future format change must follow the same pattern: bump `FileVersion`,
+  migrate + back up, and surface a one-time notice (`config.Migration`).
 
 ## Cutting a release — do exactly this
 
@@ -65,12 +72,18 @@ placeholder so they never go stale.
 
 ```
 main.go            entrypoint, flags, version
-internal/config    config.yml + environment loading
-internal/db        pgx pools + all SQL (queries, admin, describe, safety, scram, hba, settings)
-internal/ui        Bubble Tea model, tabs, reusable modals (confirm/form/alert/menu/finder)
+internal/config    config.yml (connections + settings), env, legacy migration
+internal/db        pgx pools + all SQL (queries, admin, describe, safety, scram, hba, settings),
+                   connection-error diagnosis (connerr.go)
+internal/ui        Bubble Tea model, sessions, Servers screen, tabs, reusable modals
+                   (confirm/form/alert/menu/finder)
 internal/update    GitHub release check + in-place self-update
 ```
 
-Each tab implements `tabView` (`internal/ui/model.go`). Model-level modals
-(help, update prompt, quit confirmation) live on `Model`; tab-level ones are
-fields on each tab. `q` asks to confirm before quitting; `ctrl+c` hard-quits.
+Each tab implements `tabView` (`internal/ui/model.go`). Tabs belong to a
+`session` (`internal/ui/session.go`) — one per connected server, rebuilt on
+every switch. **Every command a tab returns must go through `session.scope`**
+so results arriving after a switch are dropped instead of rendering under the
+wrong server. Model-level modals (help, Servers, notices, update prompt, quit
+confirmation) live on `Model`; tab-level ones are fields on each tab. `q` asks
+to confirm before quitting; `ctrl+c` hard-quits.

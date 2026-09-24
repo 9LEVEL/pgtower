@@ -20,9 +20,8 @@ You need **Go 1.26+** and a reachable PostgreSQL instance.
 ```bash
 git clone https://github.com/9level/pgtui.git
 cd pgtui
-cp config.yml.example config.yml   # set database_url (or export DATABASE_URL)
 make build                         # builds ./pgtui
-./pgtui
+./pgtui                            # add a server with S → a (or export DATABASE_URL)
 ```
 
 ## Development workflow

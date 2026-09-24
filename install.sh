@@ -137,47 +137,33 @@ else
 	warn "cannot create $CONFIG_DIR (no write access and no sudo)"
 fi
 
-if [ -d "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ]; then
+if [ -d "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ] && [ ! -f "$CONFIG_DIR/.env" ]; then
 	tmpl=$(mktemp)
 	cat > "$tmpl" <<'YML'
 # pgtui configuration — https://github.com/9level/pgtui
 #
-# Precedence (highest first): environment variables (DATABASE_URL, PGTUI_*) >
-# this file > built-in defaults. Everything here is optional and commented out.
+# Managed by pgtui: the Servers screen (press S) saves here. Hand edits
+# are fine, but comments other than this header are not preserved.
+# Environment variables (DATABASE_URL, PGTUI_*) still take precedence.
+# All keys are documented in config.yml.example.
 
-# --- connection ---------------------------------------------------------------
-# Either a full DSN…
-# database_url: "postgres://user:pass@host:5432/postgres?sslmode=disable"
-
-# …or the individual parts (ignored when database_url is set):
-# host: 127.0.0.1
-# port: 5432
-# user: postgres
-# password: ""
-# database: postgres
-# sslmode: disable
-
-# --- behaviour ----------------------------------------------------------------
-# Dashboard auto-refresh, in seconds.
-# refresh_seconds: 5
-
-# PBKDF2 rounds for SCRAM password resets (0 = built-in safe default).
-# scram_iterations: 15000
-
-# Host facts the tuning advisor cannot read over SQL (0 = unknown).
-# host_ram_mb: 8192
-# host_cpus: 4
-
-# Check GitHub for a newer release on startup and offer to update (true/false).
-# update_check: true
+version: 2
+connections: []
 YML
-	if [ -n "$CSUDO" ]; then $CSUDO cp "$tmpl" "$CONFIG_FILE" 2>/dev/null; else cp "$tmpl" "$CONFIG_FILE" 2>/dev/null; fi
+	if [ -n "$CSUDO" ]; then
+		$CSUDO install -m 0600 "$tmpl" "$CONFIG_FILE" 2>/dev/null
+	else
+		install -m 0600 "$tmpl" "$CONFIG_FILE" 2>/dev/null
+	fi
 	rm -f "$tmpl"
 	[ -f "$CONFIG_FILE" ] && ok "Starter config written: $CONFIG_FILE"
+elif [ -f "$CONFIG_FILE" ] && ! grep -q '^version:' "$CONFIG_FILE" 2>/dev/null; then
+	ok "Config present: $CONFIG_FILE — pgtui upgrades it to the multi-server format on first run (original kept as config.yml.v1.bak)"
+elif [ -f "$CONFIG_DIR/.env" ]; then
+	ok "Legacy $CONFIG_DIR/.env found — pgtui imports it into config.yml on first run (original kept as .env.v1.bak)"
 elif [ -f "$CONFIG_FILE" ]; then
 	ok "Config already present: $CONFIG_FILE (left untouched)"
 fi
 
-printf '\n%s Ready. Point it at your cluster and run:\n' "${G}✓${N}" >&2
-printf '    export DATABASE_URL=%s\n' "'postgres://user:pass@host:5432/postgres?sslmode=disable'" >&2
-printf '    %s   %s\n' "pgtui" "# or edit $CONFIG_FILE" >&2
+printf '\n%s Ready. Run %s and press %s to add your servers.\n' "${G}✓${N}" "${B}pgtui${N}" "${B}S${N}" >&2
+printf '  One-off without saving anything:  DATABASE_URL=%s pgtui\n' "'postgres://user:pass@host:5432/postgres'" >&2

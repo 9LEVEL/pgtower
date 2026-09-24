@@ -15,7 +15,7 @@ Single static binary, no dependencies, no container required.
 <!-- TODO: add a demo GIF here -->
 
 ```
- pgtui  v0.6.1                         postgres@db:5432 • admin db: postgres  9level.dev
+ pgtui  v0.9.0              PROD  db1  postgres@db1:5432 • admin db: postgres  9level.dev
  1 Dashboard  2 Databases  3 Query  4 Locks  5 Sessions  6 Roles  7 Tuning
  ╭ CONNECTIONS ╮ ╭ CACHE HIT ╮ ╭ STORAGE ─╮ ╭ UPTIME ─╮
  │ 40 / 50     │ │ 100.00%   │ │ 217 MB   │ │ 2h 27m  │
@@ -42,6 +42,9 @@ data browser), but its focus is **cluster administration**:
   when you're near the limit or drowning in idle connections.
 - **Tuning** — a read-only settings advisor, an `ALTER SYSTEM` editor, and a
   `pg_hba` viewer/editor with a lockout-proof safety net.
+- **Servers** — keep several clusters in one place and hop between them with
+  `S`; test reachability, tag production servers, and get a plain-language
+  diagnosis when one can't be reached.
 
 Core management (roles, databases, sessions, queries) works **without a
 superuser** — a role with `CREATEROLE`/`CREATEDB` is enough. The **Tuning**
@@ -52,6 +55,7 @@ superuser (see [Permissions](#permissions)).
 
 | Tab | What it does |
 |-----|--------------|
+| **Servers** (`S`) | Connection manager: list, **switch**, add / edit / delete, `t` **test** (latency + server version), `*` set the default. Tag servers `dev` / `staging` / `prod` (prod gets a red header badge). Connection failures are explained — *not responding*, *refused*, *no route*, *auth failed*, *pg_hba rejected*, *TLS* … — with what to check next, instead of a raw driver error. |
 | **1 · Dashboard** | Cluster health: connections vs `max_connections` (with reserved slots), cache hit ratio, uptime, total size, commits/rollbacks, version, longest active query, replication. A **connection advisor** flags near-limit/idle-dominated/idle-in-transaction situations and tells you what to do. Auto-refresh. |
 | **2 · Databases** | Databases (owner, size, connections) → tables → **read-only data browser** (horizontal column scroll `←→`, per-column search `/`, top query bar `e`). Create (`n`) / drop (`D`) databases, `d` for a table's structure (columns, indexes, constraints), and `/` for a **fuzzy quick-find** in the database/table list. |
 | **3 · Query** | SQL editor with a paged result grid. `x` runs **EXPLAIN** (plan only). Writes require confirmation; destructive statements (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` without `WHERE`) require typing `yes`. |
@@ -96,9 +100,16 @@ make install        # -> /usr/local/bin/pgtui (sudo)
 ### Get running in 30 seconds
 
 ```bash
-export DATABASE_URL='postgres://user:pass@host:5432/postgres?sslmode=disable'
-pgtui        # opens on the Dashboard — press ? for shortcuts, q to quit
+pgtui        # first run: the Servers screen opens — press a to add a server
 ```
+
+Or, one-off without saving anything:
+
+```bash
+DATABASE_URL='postgres://user:pass@host:5432/postgres?sslmode=disable' pgtui
+```
+
+Press `S` any time to switch servers, `?` for shortcuts, `q` to quit.
 
 ## Upgrading
 
@@ -131,38 +142,60 @@ Pin a version with `PGTUI_VERSION=vX.Y.Z`. Installed from source instead?
 
 ## Configuration
 
-pgtui is configured, in order of precedence, by **environment variables** → a
-**`config.yml`** file → built-in defaults. The installer creates
-`/opt/pgtui/config.yml` for you; you can also drop one next to the binary, in
-`~/.config/pgtui/`, or the working directory (full template:
+pgtui keeps its servers and settings in **`config.yml`**, which it **manages
+itself**: the Servers screen (`S`) adds, edits and removes servers and saves
+them there (mode `0600`, since it may hold passwords). The installer creates
+`/opt/pgtui/config.yml`; pgtui also looks next to the binary, in
+`~/.config/pgtui/` and in the working directory (full reference:
 [`config.yml.example`](config.yml.example)).
 
 ```yaml
 # /opt/pgtui/config.yml
-database_url: "postgres://USER:PASSWORD@HOST:5432/postgres?sslmode=disable"
-refresh_seconds: 5
-# scram_iterations: 15000   # PBKDF2 rounds for password-reset hashing
-# host_ram_mb: 8192         # host RAM for the Tuning advisor
-# host_cpus: 4              # host cores for the Tuning advisor
-# update_check: true        # startup "newer release available" prompt
+version: 2
+default: prod                   # opened at startup (pgtui -s NAME picks another)
+connections:
+  - name: prod
+    url: postgres://admin:secret@10.0.0.5:5432/postgres?sslmode=require
+    tag: prod                   # dev | staging | prod
+  - name: local
+    host: /var/run/postgresql   # host, IP, or a unix-socket directory
+    user: postgres
+    tag: dev
+# refresh_seconds: 5
+# scram_iterations: 15000       # PBKDF2 rounds for password-reset hashing
+# host_ram_mb: 8192             # host RAM for the Tuning advisor (also per server)
+# host_cpus: 4                  # host cores for the Tuning advisor (also per server)
+# update_check: true            # startup "newer release available" prompt
 ```
-
-Prefer environment variables? They still work and **override** the file:
 
 ```bash
-export DATABASE_URL='postgres://USER:PASSWORD@HOST:5432/postgres?sslmode=disable'
+pgtui --list          # show the configured servers
+pgtui -s local        # open a specific one
 ```
 
-- The database in the URL is the **admin db** — where cluster-level queries run
-  (`pg_stat_activity`, `pg_database`, replication, locks). pgtui opens
-  additional connections on demand when you browse another database's tables or
-  run a query against a different target (switch it with `/`).
-- Standard `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`/`PGSSLMODE`
-  variables are used if neither `DATABASE_URL` nor `database_url` is set.
-- Precedence: environment variables > `config.yml` > defaults.
-- Search locations: `PGTUI_CONFIG` (an explicit file) or `PGTUI_CONFIG_DIR`
-  override the search; otherwise `./`, the binary's directory, `~/.config/pgtui/`,
-  `/opt/pgtui/`, `/etc/pgtui/` (first hit wins).
+- **Environment variables** still work and win: `DATABASE_URL` (or the standard
+  `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`/`PGSSLMODE`) adds a
+  session-only server named `env` that opens first and is **never written** to
+  `config.yml`. `PGTUI_*` variables override the settings.
+- **Passwords** can stay out of the file: leave the field empty and use
+  `~/.pgpass`, or set `password_env: SOME_VAR` on the server.
+- The **admin db** (the database in the URL, `postgres` by default) is where
+  cluster-level queries run (`pg_stat_activity`, `pg_database`, replication,
+  locks). pgtui opens additional connections on demand when you browse another
+  database or run a query against a different target (switch it with `/`).
+- Search locations: `PGTUI_CONFIG` (an explicit file) or `PGTUI_CONFIG_DIR` (a
+  directory) **replace** the search; otherwise `./`, the binary's directory,
+  `~/.config/pgtui/`, `/opt/pgtui/`, `/etc/pgtui/` (first hit wins).
+
+### Upgrading from v0.8 or older
+
+Older versions supported a single connection (`database_url` / `host` / … at
+the top of `config.yml`, and up to v0.7 a `.env` file). On the first run of a
+newer pgtui this is **converted automatically**: the connection becomes a named
+server (named after its host, set as default), the original files are kept as
+`config.yml.v1.bak` / `.env.v1.bak` (mode `0600`), and a one-time notice says
+what was done. Nothing else is needed; delete the `.v1.bak` files once you no
+longer plan to downgrade.
 
 ### Permissions
 
@@ -186,6 +219,7 @@ Press `?` in the app for the full, scrollable list.
 |-----|--------|
 | `1`–`7` | switch tab |
 | `tab` / `shift+tab` | next / previous tab |
+| `S` / `ctrl+o` | servers: switch, add (`a`), edit (`e`), delete (`d`), test (`t`), default (`*`) |
 | `?` | help (all shortcuts) |
 | `q` / `ctrl+c` | quit |
 | **Databases** | |

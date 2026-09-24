@@ -1,28 +1,52 @@
 # pgtui configuration — https://github.com/9level/pgtui
 #
-# Copy this to one of the locations pgtui searches (highest priority first):
-#   ./config.yml                    (next to where you run pgtui)
-#   <dir of the pgtui binary>/config.yml
-#   $XDG_CONFIG_HOME/pgtui/config.yml   (usually ~/.config/pgtui/config.yml)
-#   /opt/pgtui/config.yml           (created by install.sh)
-#   /etc/pgtui/config.yml
-# Point PGTUI_CONFIG at an explicit file, or PGTUI_CONFIG_DIR at a directory,
-# to override the search.
+# pgtui manages this file: the Servers screen (press S) adds, edits and removes
+# servers and saves them here (mode 0600 — it may hold passwords). You rarely
+# need to edit it by hand.
 #
-# Precedence (highest first): environment variables (DATABASE_URL, PGTUI_*) >
-# this file > built-in defaults. Everything here is optional and commented out.
+# Search order (first hit wins): ./config.yml, next to the pgtui binary,
+# ~/.config/pgtui/, /opt/pgtui/ (created by install.sh), /etc/pgtui/.
+# PGTUI_CONFIG (a file) or PGTUI_CONFIG_DIR (a directory) replace the search.
+#
+# Precedence (highest first): environment variables > this file > defaults.
+# DATABASE_URL (or PGHOST/PGUSER/…) adds a session-only server named "env"
+# that opens first and is never written here.
+#
+# Upgrading from pgtui v0.8 or older? A single-connection config.yml (with
+# database_url / host / … at the top level) and a legacy .env are converted to
+# this format automatically on first run; the originals are kept as
+# config.yml.v1.bak / .env.v1.bak.
 
-# --- connection ---------------------------------------------------------------
-# Either a full DSN…
-# database_url: "postgres://user:pass@host:5432/postgres?sslmode=disable"
+version: 2
 
-# …or the individual parts (ignored when database_url is set):
-# host: 127.0.0.1
-# port: 5432
-# user: postgres
-# password: ""
-# database: postgres
-# sslmode: disable
+# Server opened at startup (pgtui -s NAME picks another one).
+default: prod
+
+connections:
+  # A full URL…
+  - name: prod
+    url: postgres://admin:secret@10.0.0.5:5432/postgres?sslmode=require
+    tag: prod                 # dev | staging | prod — prod shows a red header badge
+    host_ram_mb: 32768        # per-server override of the Tuning advisor facts
+    host_cpus: 16
+
+  # …or the individual parts. host may be a unix-socket directory.
+  - name: local
+    host: /var/run/postgresql
+    port: 5432
+    user: postgres
+    database: postgres        # the "admin db" for cluster-level queries
+    sslmode: disable          # disable | prefer | require | verify-ca | verify-full
+    tag: dev
+
+  # Keep the password out of this file: read it from a variable, or leave it
+  # empty and use ~/.pgpass.
+  - name: staging
+    host: db.staging.internal
+    user: pgtui
+    password_env: PGTUI_STAGING_PASSWORD
+    sslmode: require
+    tag: staging
 
 # --- behaviour ----------------------------------------------------------------
 # Dashboard auto-refresh, in seconds.
@@ -31,7 +55,8 @@
 # PBKDF2 rounds for SCRAM password resets (0 = built-in safe default).
 # scram_iterations: 15000
 
-# Host facts the tuning advisor cannot read over SQL (0 = unknown).
+# Host facts the tuning advisor cannot read over SQL (0 = unknown). Per-server
+# values above take precedence.
 # host_ram_mb: 8192
 # host_cpus: 4
 
