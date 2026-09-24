@@ -1,26 +1,36 @@
-# pgtui
+<p align="center">
+  <img src="docs/brand/logo.svg" width="96" height="96" alt="pgtower logo">
+</p>
 
-[![CI](https://github.com/9level/pgtui/actions/workflows/ci.yml/badge.svg)](https://github.com/9level/pgtui/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/9level/pgtui?sort=semver)](https://github.com/9level/pgtui/releases/latest)
+<h1 align="center">pgtower</h1>
+
+<p align="center"><strong>The control tower for your Postgres fleet.</strong></p>
+
+<p align="center"><a href="https://pgtower.sh">pgtower.sh</a> · formerly <em>pgtui</em> — <a href="#coming-from-pgtui">what changed</a></p>
+
+[![CI](https://github.com/9level/pgtower/actions/workflows/ci.yml/badge.svg)](https://github.com/9level/pgtower/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/9level/pgtower?sort=semver)](https://github.com/9level/pgtower/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A keyboard-first **PostgreSQL administration TUI** for sysadmins — think *k9s,
-but for Postgres*. Where most database TUIs are data browsers, pgtui leans into
+but for Postgres*. A control tower sees every aircraft, spots conflicts before
+they happen and decides who goes next; pgtower does that for your Postgres
+servers. Where most database TUIs are data browsers, pgtower leans into
 **operations**: watch and kill sessions, manage roles and grants, create/drop
 databases, and inspect cluster health — all with strong guards against
 destructive mistakes.
 
 Single static binary, no dependencies, no container required.
 
-![pgtui demo: dashboard, sessions, blocking tree, roles, databases, switching servers and the tuning advisor](docs/demo.gif)
+![pgtower demo: dashboard, sessions, blocking tree, roles, databases, switching servers and the tuning advisor](docs/demo.gif)
 
 <sub>Recorded with [VHS](https://github.com/charmbracelet/vhs) against throwaway clusters —
 regenerate with `vhs docs/demo/demo.tape`.</sub>
 
-## Why pgtui?
+## Why pgtower?
 
 Tools like `pgcli`, `lazysql` and `rainfrog` are great for **browsing data and
-running queries**. pgtui overlaps there (it has a query runner and a read-only
+running queries**. pgtower overlaps there (it has a query runner and a read-only
 data browser), but its focus is **cluster administration**:
 
 - **Sessions** — see every client backend and `pg_cancel_backend` /
@@ -57,14 +67,14 @@ superuser (see [Permissions](#permissions)).
 | **4 · Locks** | Blocking tree: which session waits on which. |
 | **5 · Sessions** | `pg_stat_activity` with state/wait/duration/query. `c` cancels the query, `k` terminates the connection, `/` **fuzzy quick-find** (by PID, user, database, state or query text). |
 | **6 · Roles** | Roles with their attributes and connection limit (`CONN`, ∞ = unlimited). `SUPER` and `BYPASSRLS` are marked `⚠ yes` — both ignore row-level security. `enter` **manage** the selected role (reset password — random 32-char, shown once; set the connection limit; **edit attributes**: LOGIN, CREATEDB, CREATEROLE, SUPERUSER, REPLICATION, BYPASSRLS; or **show access** — a per-database report of what the role owns and is granted, schema/table privileges included). `n` create, `g` grant / `R` revoke (pick the database in a fuzzy finder, then the privilege, then **confirm the exact SQL**), `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss), `/` **fuzzy quick-find** by name. |
-| **7 · Tuning** | Config sections (switch with `a` / `s` / `h`): a read-only **configuration advisor** (`shared_buffers`, `effective_cache_size`, `work_mem`, `maintenance_work_mem`, `max_connections` — current vs recommended with a verdict; concrete targets need `PGTUI_HOST_RAM_MB` / `PGTUI_HOST_CPUS`); an **ALTER SYSTEM editor** (`enter` edit / `x` reset any GUC — validated against type & bounds, applied with `pg_reload_conf`, `/` filters, restart-required settings are flagged); and a **pg_hba editor** (`pg_hba_file_rules` with parse-error flags; `n`/`e`/`d` add/edit/delete a rule — superuser only, each write is backed up, validated, reloaded and **auto-rolled-back if admin login breaks**). `r` refresh. |
+| **7 · Tuning** | Config sections (switch with `a` / `s` / `h`): a read-only **configuration advisor** (`shared_buffers`, `effective_cache_size`, `work_mem`, `maintenance_work_mem`, `max_connections` — current vs recommended with a verdict; concrete targets need `PGTOWER_HOST_RAM_MB` / `PGTOWER_HOST_CPUS`); an **ALTER SYSTEM editor** (`enter` edit / `x` reset any GUC — validated against type & bounds, applied with `pg_reload_conf`, `/` filters, restart-required settings are flagged); and a **pg_hba editor** (`pg_hba_file_rules` with parse-error flags; `n`/`e`/`d` add/edit/delete a rule — superuser only, each write is backed up, validated, reloaded and **auto-rolled-back if admin login breaks**). `r` refresh. |
 
 ## Install
 
 ### One line (Linux / macOS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/9level/pgtui/master/install.sh | sh
+curl -fsSL https://pgtower.sh | sh
 ```
 
 It detects your OS/arch, downloads the latest **static** binary (verifying its
@@ -78,49 +88,49 @@ and macOS; only the CPU architecture matters:
 | **macOS** | ✅ | ✅ |
 | **Windows** | build from source / WSL | — |
 
-Tweak the install: `PGTUI_INSTALL_DIR="$HOME/.local/bin"` or `PGTUI_VERSION=vX.Y.Z`.
+Tweak the install: `PGTOWER_INSTALL_DIR="$HOME/.local/bin"` or `PGTOWER_VERSION=vX.Y.Z`.
 Prefer to read before you pipe to a shell? It's just [`install.sh`](install.sh).
 Prebuilt binaries are also attached to each
-[GitHub Release](https://github.com/9level/pgtui/releases).
+[GitHub Release](https://github.com/9level/pgtower/releases).
 
 ### From source (Go 1.26+)
 
 ```bash
-git clone https://github.com/9level/pgtui.git
-cd pgtui
-make build          # -> ./pgtui
-make install        # -> /usr/local/bin/pgtui (sudo)
+git clone https://github.com/9level/pgtower.git
+cd pgtower
+make build          # -> ./pgtower
+make install        # -> /usr/local/bin/pgtower (sudo)
 ```
 
 ### Get running in 30 seconds
 
 ```bash
-pgtui        # first run: the Servers screen opens — press a to add a server
+pgtower        # first run: the Servers screen opens — press a to add a server
 ```
 
 Or, one-off without saving anything:
 
 ```bash
-DATABASE_URL='postgres://user:pass@host:5432/postgres?sslmode=disable' pgtui
+DATABASE_URL='postgres://user:pass@host:5432/postgres?sslmode=disable' pgtower
 ```
 
 Press `S` any time to switch servers, `?` for shortcuts, `q` to quit.
 
 ## Upgrading
 
-pgtui checks GitHub for a newer release **on startup** and, if there is one,
+pgtower checks GitHub for a newer release **on startup** and, if there is one,
 asks what to do:
 
 - **Update now** — downloads the right binary for your OS/arch, verifies its
   SHA-256 and replaces the running binary **in place**. If the install directory
   needs root (e.g. `/usr/local/bin`), it shows the exact command to finish.
-  Restart pgtui afterwards.
+  Restart pgtower afterwards.
 - **Not now** — dismiss for this run.
 - **Never suggest again** — stop asking for good (a marker in your config dir);
   re-enable with `update_check: true` in `config.yml`.
 
 Disable the check entirely with `update_check: false` (config.yml) or
-`PGTUI_UPDATE_CHECK=0`. Source/dev builds are never nagged.
+`PGTOWER_UPDATE_CHECK=0`. Source/dev builds are never nagged.
 
 ### Lazy upgrade (one line)
 
@@ -129,25 +139,25 @@ Don't want the prompt at all? Just re-run the installer — it always grabs the
 `config.yml` is left untouched):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/9level/pgtui/master/install.sh | sh
+curl -fsSL https://pgtower.sh | sh
 ```
 
-Pin a version with `PGTUI_VERSION=vX.Y.Z`. Installed from source instead?
-`cd pgtui && git pull && make install`.
+Pin a version with `PGTOWER_VERSION=vX.Y.Z`. Installed from source instead?
+`cd pgtower && git pull && make install`.
 
 ## Configuration
 
-pgtui keeps its servers and settings in **`config.yml`**, which it **manages
+pgtower keeps its servers and settings in **`config.yml`**, which it **manages
 itself**: the Servers screen (`S`) adds, edits and removes servers and saves
 them there (mode `0600`, since it may hold passwords). The installer creates
-`/opt/pgtui/config.yml`; pgtui also looks next to the binary, in
-`~/.config/pgtui/` and in the working directory (full reference:
+`/opt/pgtower/config.yml`; pgtower also looks next to the binary, in
+`~/.config/pgtower/` and in the working directory (full reference:
 [`config.yml.example`](config.yml.example)).
 
 ```yaml
-# /opt/pgtui/config.yml
+# /opt/pgtower/config.yml
 version: 2
-default: prod                   # opened at startup (pgtui -s NAME picks another)
+default: prod                   # opened at startup (pgtower -s NAME picks another)
 connections:
   - name: prod
     url: postgres://admin:secret@10.0.0.5:5432/postgres?sslmode=require
@@ -164,29 +174,46 @@ connections:
 ```
 
 ```bash
-pgtui --list          # show the configured servers
-pgtui -s local        # open a specific one
+pgtower --list          # show the configured servers
+pgtower -s local        # open a specific one
 ```
 
 - **Environment variables** still work and win: `DATABASE_URL` (or the standard
   `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`/`PGSSLMODE`) adds a
   session-only server named `env` that opens first and is **never written** to
-  `config.yml`. `PGTUI_*` variables override the settings.
+  `config.yml`. `PGTOWER_*` variables override the settings.
 - **Passwords** can stay out of the file: leave the field empty and use
   `~/.pgpass`, or set `password_env: SOME_VAR` on the server.
 - The **admin db** (the database in the URL, `postgres` by default) is where
   cluster-level queries run (`pg_stat_activity`, `pg_database`, replication,
-  locks). pgtui opens additional connections on demand when you browse another
+  locks). pgtower opens additional connections on demand when you browse another
   database or run a query against a different target (switch it with `/`).
-- Search locations: `PGTUI_CONFIG` (an explicit file) or `PGTUI_CONFIG_DIR` (a
+- Search locations: `PGTOWER_CONFIG` (an explicit file) or `PGTOWER_CONFIG_DIR` (a
   directory) **replace** the search; otherwise `./`, the binary's directory,
-  `~/.config/pgtui/`, `/opt/pgtui/`, `/etc/pgtui/` (first hit wins).
+  `~/.config/pgtower/`, `/opt/pgtower/`, `/etc/pgtower/` (first hit wins).
+
+### Coming from pgtui
+
+pgtower **was called pgtui** up to v0.9 (renamed in v0.10 because another
+project already used that name). Same code, same keys, same config format —
+only the name changed, and the upgrade handles it for you:
+
+| Before (pgtui) | Now (pgtower) | How it moves |
+|---|---|---|
+| `pgtui` command | `pgtower` | The in-app update or the installer renames the binary; `pgtui` stays as a **symlink** so scripts keep working (delete it whenever you like). |
+| `/opt/pgtui/`, `~/.config/pgtui/`, `/etc/pgtui/` | `/opt/pgtower/`, `~/.config/pgtower/`, `/etc/pgtower/` | Moved on first run; nothing is left behind. If a directory can't be moved (permissions), it is still read in place and pgtower tells you. |
+| `PGTUI_*` variables | `PGTOWER_*` | The old names are **still read** as a fallback; pgtower lists the ones you should rename. |
+| `application_name = 'pgtui'` | `'pgtower'` | Update any monitoring filter that relied on it. |
+| `github.com/9level/pgtui` | `github.com/9level/pgtower` | GitHub redirects the old URLs. |
+
+A one-time *Welcome to pgtower* notice summarises what was done on your
+machine.
 
 ### Upgrading from v0.8 or older
 
 Older versions supported a single connection (`database_url` / `host` / … at
 the top of `config.yml`, and up to v0.7 a `.env` file). On the first run of a
-newer pgtui this is **converted automatically**: the connection becomes a named
+newer pgtower this is **converted automatically**: the connection becomes a named
 server (named after its host, set as default), the original files are kept as
 `config.yml.v1.bak` / `.env.v1.bak` (mode `0600`), and a one-time notice says
 what was done. Nothing else is needed; delete the `.v1.bak` files once you no
@@ -251,7 +278,7 @@ Press `?` in the app for the full, scrollable list.
 
 ## Safety model
 
-pgtui is built so you can't lose data by accident:
+pgtower is built so you can't lose data by accident:
 
 - The query runner classifies every statement: **read-only** runs immediately,
   **writes** confirm with `y`, and **critical** statements (`DROP DATABASE` /
@@ -268,8 +295,8 @@ pgtui is built so you can't lose data by accident:
   safe in any terminal) and shows it once, on screen. A non-ASCII typed password
   is sent as-is so the server can SASLprep it correctly. The PBKDF2 round count
   defaults to 15000 (stronger than Postgres' 4096) and is configurable via
-  `PGTUI_SCRAM_ITERATIONS`.
-- **Editing `pg_hba.conf`** (Tuning tab) never leaves you locked out: pgtui
+  `PGTOWER_SCRAM_ITERATIONS`.
+- **Editing `pg_hba.conf`** (Tuning tab) never leaves you locked out: pgtower
   backs up the file, writes the change, checks `pg_hba_file_rules` for parse
   errors, reloads, then opens a **fresh admin connection** to confirm login
   still works — any failure restores the backup and reloads. It needs a
@@ -291,13 +318,13 @@ Need a throwaway cluster for the integration tests? A `docker-compose.yml`
 
 ```bash
 docker compose up -d
-export DATABASE_URL='postgres://postgres:pgtui_test@127.0.0.1:5432/postgres?sslmode=disable'
+export DATABASE_URL='postgres://postgres:pgtower_test@127.0.0.1:5432/postgres?sslmode=disable'
 make test                                   # now runs the live tests too
-PGTUI_HBA_LIVE_TEST=1 go test ./...          # also the guarded pg_hba write test
+PGTOWER_HBA_LIVE_TEST=1 go test ./...          # also the guarded pg_hba write test
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow. To debug the UI,
-log to a file: `PGTUI_DEBUG=/tmp/pgtui.log ./pgtui`.
+log to a file: `PGTOWER_DEBUG=/tmp/pgtower.log ./pgtower`.
 
 ## Distribution & releases
 
@@ -314,7 +341,7 @@ Pushing a `v*.*.*` tag runs the CI (`.github/workflows/ci.yml`): tests, then
 The **source code** is licensed under the [MIT License](LICENSE) © 2026 9Level.
 
 The MIT license covers the code only — it does **not** grant rights to the
-project's brand. **"pgtui", "9Level", and the 9Level logo are trademarks of
+project's brand. **"pgtower", "9Level", and the 9Level logo are trademarks of
 9Level**; see [TRADEMARKS.md](TRADEMARKS.md). If you fork it, please use a
 different name.
 

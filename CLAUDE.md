@@ -1,13 +1,13 @@
 # CLAUDE.md — working in this repo
 
-pgtui is a keyboard-first **PostgreSQL administration TUI** (Go 1.26, Bubble
-Tea). Single **static** binary, no CGo. Public repo: `github.com/9level/pgtui`.
+pgtower is a keyboard-first **PostgreSQL administration TUI** (Go 1.26, Bubble
+Tea). Single **static** binary, no CGo. Public repo: `github.com/9level/pgtower`.
 
 ## Build · test · run
 
 ```bash
-make build          # -> ./pgtui  (dev build, version "dev")
-make install        # -> /usr/local/bin/pgtui  (dev build)
+make build          # -> ./pgtower  (dev build, version "dev")
+make install        # -> /usr/local/bin/pgtower  (dev build)
 make vet            # go vet ./...            (must be clean)
 gofmt -l .          # must print nothing      (gofmt -w . to fix)
 make test           # unit + integration; live tests self-skip without DATABASE_URL
@@ -17,7 +17,7 @@ Live/integration tests need a throwaway cluster:
 
 ```bash
 docker compose up -d
-export DATABASE_URL='postgres://postgres:pgtui_test@127.0.0.1:5432/postgres?sslmode=disable'
+export DATABASE_URL='postgres://postgres:pgtower_test@127.0.0.1:5432/postgres?sslmode=disable'
 make test
 ```
 
@@ -32,11 +32,15 @@ defaults**. There is **no `.env`-file support** — env vars only, plus the file
   global settings, and is **written by the app** (Servers screen, `S`) — keep
   `config.Store.Save` the only writer; it is atomic and `0600`. Template and key
   reference: `config.yml.example`.
-- Searched in `./`, the binary's dir, `~/.config/pgtui/`, `/opt/pgtui/`,
-  `/etc/pgtui/`; `PGTUI_CONFIG` (file) or `PGTUI_CONFIG_DIR` (dir) replace the
+- Searched in `./`, the binary's dir, `~/.config/pgtower/`, `/opt/pgtower/`,
+  `/etc/pgtower/`; `PGTOWER_CONFIG` (file) or `PGTOWER_CONFIG_DIR` (dir) replace the
   search (tests rely on this for isolation).
 - `DATABASE_URL` / `PG*` add a session-only connection named `env`; it is never
-  saved. `PGTUI_*` override the settings.
+  saved. `PGTOWER_*` override the settings.
+- pgtower was **pgtui** up to v0.9. `internal/config/legacy.go` still reads
+  `PGTUI_*` (after `PGTOWER_*`, via `config.Env`) and moves the pgtui config
+  dirs on load; `internal/update/rename.go` renames a binary started as `pgtui`
+  and leaves a `pgtui` symlink. Always read settings through `config.Env`.
 - Legacy (v0.8-) single-connection files and pre-v0.8 `.env` files are migrated
   on load by `internal/config/migrate.go` (backup `*.v1.bak`, then rewrite).
   Any future format change must follow the same pattern: bump `FileVersion`,
@@ -49,13 +53,17 @@ defaults**. There is **no `.env`-file support** — env vars only, plus the file
 3. `git push origin master`  — `make release` pushes only the tag; sync the branch.
 4. CI (`.github/workflows/ci.yml`, on `v*.*.*` tags) runs `make build-all` and
    attaches `dist/*` to a GitHub Release with auto-generated notes.
-5. Verify: `gh release view vX.Y.Z` lists **4 binaries + `SHA256SUMS`**.
+5. Verify: `gh release view vX.Y.Z` lists **8 binaries + `SHA256SUMS`** (4 while
+   `LEGACY_BINARY` is empty).
 
 The version exists **only** in the git tag (injected via `-ldflags
 main.version`); nothing in the source needs editing to bump it. Release assets
-**must** stay named `pgtui-<version>-{linux,darwin}-{amd64,arm64}` and
+**must** stay named `pgtower-<version>-{linux,darwin}-{amd64,arm64}` and
 `SHA256SUMS` — both `install.sh` and the in-app self-updater
-(`internal/update`) fetch them by name. Doc command-examples use a `vX.Y.Z`
+(`internal/update`) fetch them by name. Until `LEGACY_BINARY` is dropped from
+the Makefile (planned for v0.12), every release also carries identical
+`pgtui-<version>-*` copies so v0.9 self-updaters can reach pgtower: a release
+then lists **8 binaries + `SHA256SUMS`**. Doc command-examples use a `vX.Y.Z`
 placeholder so they never go stale.
 
 ## Commit rules

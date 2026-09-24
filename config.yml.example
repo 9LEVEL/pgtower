@@ -1,25 +1,29 @@
-# pgtui configuration — https://github.com/9level/pgtui
+# pgtower configuration — https://github.com/9level/pgtower
 #
-# pgtui manages this file: the Servers screen (press S) adds, edits and removes
+# pgtower manages this file: the Servers screen (press S) adds, edits and removes
 # servers and saves them here (mode 0600 — it may hold passwords). You rarely
 # need to edit it by hand.
 #
-# Search order (first hit wins): ./config.yml, next to the pgtui binary,
-# ~/.config/pgtui/, /opt/pgtui/ (created by install.sh), /etc/pgtui/.
-# PGTUI_CONFIG (a file) or PGTUI_CONFIG_DIR (a directory) replace the search.
+# Search order (first hit wins): ./config.yml, next to the pgtower binary,
+# ~/.config/pgtower/, /opt/pgtower/ (created by install.sh), /etc/pgtower/.
+# PGTOWER_CONFIG (a file) or PGTOWER_CONFIG_DIR (a directory) replace the search.
 #
 # Precedence (highest first): environment variables > this file > defaults.
 # DATABASE_URL (or PGHOST/PGUSER/…) adds a session-only server named "env"
 # that opens first and is never written here.
 #
-# Upgrading from pgtui v0.8 or older? A single-connection config.yml (with
+# Coming from pgtui (pgtower's name up to v0.9)? /opt/pgtui, ~/.config/pgtui and
+# /etc/pgtui are moved to their pgtower names on first run, and PGTUI_*
+# variables are still read as a fallback for PGTOWER_*.
+#
+# Upgrading from v0.8 or older? A single-connection config.yml (with
 # database_url / host / … at the top level) and a legacy .env are converted to
 # this format automatically on first run; the originals are kept as
 # config.yml.v1.bak / .env.v1.bak.
 
 version: 2
 
-# Server opened at startup (pgtui -s NAME picks another one).
+# Server opened at startup (pgtower -s NAME picks another one).
 default: prod
 
 connections:
@@ -43,8 +47,8 @@ connections:
   # empty and use ~/.pgpass.
   - name: staging
     host: db.staging.internal
-    user: pgtui
-    password_env: PGTUI_STAGING_PASSWORD
+    user: pgtower
+    password_env: PGTOWER_STAGING_PASSWORD
     sslmode: require
     tag: staging
 

@@ -1,6 +1,6 @@
-# Contributing to pgtui
+# Contributing to pgtower
 
-Thanks for your interest in improving pgtui! This document explains how to get
+Thanks for your interest in improving pgtower! This document explains how to get
 set up, the conventions we follow, and how to propose changes.
 
 ## Ground rules
@@ -18,10 +18,10 @@ set up, the conventions we follow, and how to propose changes.
 You need **Go 1.26+** and a reachable PostgreSQL instance.
 
 ```bash
-git clone https://github.com/9level/pgtui.git
-cd pgtui
-make build                         # builds ./pgtui
-./pgtui                            # add a server with S → a (or export DATABASE_URL)
+git clone https://github.com/9level/pgtower.git
+cd pgtower
+make build                         # builds ./pgtower
+./pgtower                            # add a server with S → a (or export DATABASE_URL)
 ```
 
 ## Development workflow
@@ -42,7 +42,7 @@ nothing, `go vet ./...` passes, and `go test ./...` is green.
 - Unit tests run with no external dependencies.
 - Integration tests run **only** when `DATABASE_URL` is set; otherwise they
   self-skip. They are read-only against your data and only ever create/drop
-  throwaway objects named `pgtui_*` / `aaa_pgtui_*`, which they clean up.
+  throwaway objects named `pgtower_*` / `aaa_pgtower_*`, which they clean up.
 
 ```bash
 DATABASE_URL='postgres://user:pass@host:5432/postgres?sslmode=disable' go test ./...
@@ -57,7 +57,7 @@ DATABASE_URL='postgres://user:pass@host:5432/postgres?sslmode=disable' go test .
 The alt-screen owns stdout, so log to a file instead:
 
 ```bash
-PGTUI_DEBUG=/tmp/pgtui.log ./pgtui   # then: tail -f /tmp/pgtui.log
+PGTOWER_DEBUG=/tmp/pgtower.log ./pgtower   # then: tail -f /tmp/pgtower.log
 ```
 
 ## Project layout
@@ -103,9 +103,9 @@ them. See [CLAUDE.md](CLAUDE.md) for the full checklist.
 
 ## Reporting bugs
 
-Include: the pgtui version (shown in the header, or `pgtui --version`), the
+Include: the pgtower version (shown in the header, or `pgtower --version`), the
 PostgreSQL version, what you did, what you expected, and what happened. A
-`PGTUI_DEBUG` log excerpt helps a lot for UI issues.
+`PGTOWER_DEBUG` log excerpt helps a lot for UI issues.
 
 ## Security
 
