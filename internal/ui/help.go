@@ -121,7 +121,7 @@ func (m *Model) overlayHelp(bg string) string {
 		conn = wrap.Render(
 			stLabel.Render("server  ") + stValue.Render(c.Name) +
 				stLabel.Render("    connection  ") + stValue.Render(fmt.Sprintf("%s@%s:%s", c.User, c.Host, c.Port)) +
-				stLabel.Render("    admin db  ") + stValue.Render(m.sess.mgr.AdminDB()))
+				stLabel.Render("    admin db  ") + stValue.Render(c.AdminDB))
 	}
 	rule := stKeyHint.Render(strings.Repeat("─", w))
 	about := ident + "\n\n" + desc + "\n" + conn

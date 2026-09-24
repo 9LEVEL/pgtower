@@ -285,3 +285,33 @@ func TestSwitchServersLive(t *testing.T) {
 		t.Error("a result from the previous server leaked into the new session")
 	}
 }
+
+// stubTab renders a fixed number of lines, to test the page layout.
+type stubTab struct{ lines int }
+
+func (s stubTab) Title() string          { return "Stub" }
+func (s stubTab) Init() tea.Cmd          { return nil }
+func (s stubTab) Update(tea.Msg) tea.Cmd { return nil }
+func (s stubTab) SetSize(int, int)       {}
+func (s stubTab) CapturingInput() bool   { return false }
+func (s stubTab) FooterHints() string    { return "" }
+func (s stubTab) View() string           { return strings.TrimSuffix(strings.Repeat("row\n", s.lines), "\n") }
+
+// Whatever a tab renders, the page is exactly the terminal height: the header
+// stays on the first line and the footer on the last.
+func TestPageAlwaysFillsTerminal(t *testing.T) {
+	for _, n := range []int{1, 20, 34, 35, 80} {
+		m := New(&config.Store{}, "v1.2.3", nil)
+		m.gen = 1
+		m.sess = &session{gen: 1, cfg: &config.Config{Name: "srv", Tag: config.TagProd}, tabs: []tabView{stubTab{n}}}
+		var tm tea.Model = m
+		tm, _ = tm.Update(tea.WindowSizeMsg{Width: 120, Height: 37})
+		page := strings.Split(tm.View(), "\n")
+		if len(page) != 37 {
+			t.Errorf("body of %d lines: page has %d lines, want 37", n, len(page))
+		}
+		if !strings.Contains(page[0], "pgtui") {
+			t.Errorf("body of %d lines: header scrolled away, first line %q", n, page[0])
+		}
+	}
+}

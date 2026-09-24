@@ -38,7 +38,8 @@ func (v *locksView) Init() tea.Cmd {
 
 func (v *locksView) SetSize(w, h int) {
 	v.width, v.height = w, h
-	th := h - 2
+	// blank line + title above the table, blank line + "blocked:" detail below.
+	th := h - 4
 	if th < 3 {
 		th = 3
 	}
