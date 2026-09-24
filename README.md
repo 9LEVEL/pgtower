@@ -6,7 +6,7 @@
 
 <p align="center"><strong>The control tower for your Postgres fleet.</strong></p>
 
-<p align="center"><a href="https://pgtower.sh">pgtower.sh</a> · formerly <em>pgtui</em> — <a href="#coming-from-pgtui">what changed</a></p>
+<p align="center"><a href="https://pgtower.dev">pgtower.dev</a> · formerly <em>pgtui</em> — <a href="#coming-from-pgtui">what changed</a></p>
 
 [![CI](https://github.com/9level/pgtower/actions/workflows/ci.yml/badge.svg)](https://github.com/9level/pgtower/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/9level/pgtower?sort=semver)](https://github.com/9level/pgtower/releases/latest)
@@ -74,8 +74,11 @@ superuser (see [Permissions](#permissions)).
 ### One line (Linux / macOS)
 
 ```bash
-curl -fsSL https://pgtower.sh | sh
+curl -fsSL https://pgtower.dev | sh
 ```
+
+The same script straight from GitHub, if you prefer:
+`curl -fsSL https://raw.githubusercontent.com/9level/pgtower/master/install.sh | sh`
 
 It detects your OS/arch, downloads the latest **static** binary (verifying its
 SHA-256) and installs it to `/usr/local/bin` — **no compiler, no runtime
@@ -139,7 +142,7 @@ Don't want the prompt at all? Just re-run the installer — it always grabs the
 `config.yml` is left untouched):
 
 ```bash
-curl -fsSL https://pgtower.sh | sh
+curl -fsSL https://pgtower.dev | sh
 ```
 
 Pin a version with `PGTOWER_VERSION=vX.Y.Z`. Installed from source instead?
