@@ -13,11 +13,11 @@ var (
 	dbgOn   bool
 )
 
-// dbg writes a line to the file pointed to by PGTUI_DEBUG (if set). Useful for
+// dbg writes a line to the file pointed to by PGTOWER_DEBUG (if set). Useful for
 // debugging the UI, since stdout is busy with the alt-screen.
 func dbg(format string, args ...any) {
 	dbgOnce.Do(func() {
-		path := os.Getenv("PGTUI_DEBUG")
+		path := os.Getenv("PGTOWER_DEBUG")
 		if path == "" {
 			return
 		}

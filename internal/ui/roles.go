@@ -9,8 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/9level/pgtui/internal/config"
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/config"
+	"github.com/9level/pgtower/internal/db"
 )
 
 const (

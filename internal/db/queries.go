@@ -21,7 +21,7 @@ type DashboardData struct {
 	MaxConns      int
 	Reserved      int // superuser_reserved_connections (+ reserved_connections, PG16)
 	TotalConns    int
-	PgtuiConns    int // backends opened by pgtui itself (application_name = 'pgtui')
+	OwnConns      int // backends opened by pgtower itself (application_name = 'pgtower')
 	Active        int
 	Idle          int
 	IdleInTx      int
@@ -64,14 +64,14 @@ func LoadDashboard(ctx context.Context, p Pinger) (DashboardData, error) {
 			          from pg_stat_activity where state = 'active'), 0)::float8,
 			(select setting::int from pg_settings where name = 'superuser_reserved_connections')
 			  + coalesce((select setting::int from pg_settings where name = 'reserved_connections'), 0),
-			(select count(*) from pg_stat_activity where application_name = 'pgtui')
+			(select count(*) from pg_stat_activity where application_name = 'pgtower')
 		from pg_stat_database`)
 
 	var longestSecs float64
 	if err := row.Scan(
 		&d.Version, &d.StartedAt, &d.MaxConns, &d.TotalConns,
 		&d.Active, &d.Idle, &d.IdleInTx, &d.CacheHitRatio,
-		&d.Commits, &d.Rollbacks, &d.DBCount, &d.TotalSize, &longestSecs, &d.Reserved, &d.PgtuiConns,
+		&d.Commits, &d.Rollbacks, &d.DBCount, &d.TotalSize, &longestSecs, &d.Reserved, &d.OwnConns,
 	); err != nil {
 		return d, err
 	}

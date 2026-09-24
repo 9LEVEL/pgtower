@@ -20,9 +20,14 @@ type Migration struct {
 	Path     string   // the config.yml now in use
 	Backups  []string // originals, kept (0600) next to the new file
 	Imported []string // connection names created
-	// Err is set when the upgraded file could not be written; pgtui then runs
+	// Err is set when the upgraded file could not be written; pgtower then runs
 	// from the in-memory upgrade and retries on the next save.
 	Err error
+
+	// Moved lists pgtower-era config directories moved to their pgtower names;
+	// MoveErr is set when one could not be moved (it is still read in place).
+	Moved   []string
+	MoveErr error
 }
 
 // legacyFile is config.yml as written by v0.8 and earlier: one connection at
@@ -48,7 +53,7 @@ func parseAndMigrate(path string, raw []byte) (fileV2, *Migration, error) {
 		return fileV2{}, nil, fmt.Errorf("%s is not valid YAML: %w", path, err)
 	}
 	if lf.Version > FileVersion {
-		return fileV2{}, nil, fmt.Errorf("%s uses config format %d, but this pgtui only knows format %d — update pgtui",
+		return fileV2{}, nil, fmt.Errorf("%s uses config format %d, but this pgtower only knows format %d — update pgtower",
 			path, lf.Version, FileVersion)
 	}
 	if lf.Version == FileVersion {
@@ -63,12 +68,12 @@ func parseAndMigrate(path string, raw []byte) (fileV2, *Migration, error) {
 		User: lf.User, Password: lf.Password, Database: lf.Database, SSLMode: lf.SSLMode}
 	// A pre-v0.8 .env next to it has been ignored since v0.8. If the v1 file
 	// only had the commented template, the real connection is still there.
-	// Only pgtui's own directories are touched: a .env in the working
+	// Only pgtower's own directories are touched: a .env in the working
 	// directory most likely belongs to another project.
 	var envPath string
 	if dir := filepath.Dir(path); ownedDir(dir) {
 		p, env := legacyDotenv(dir)
-		if isPgtuiDotenv(env) {
+		if isPgtowerDotenv(env) {
 			envPath = p
 			if c.URL == "" && c.Host == "" && env["DATABASE_URL"] != "" {
 				c.URL = env["DATABASE_URL"]
@@ -89,7 +94,7 @@ func parseAndMigrate(path string, raw []byte) (fileV2, *Migration, error) {
 }
 
 // importLegacyDotenv handles installs with no config.yml at all but a pre-v0.8
-// .env in one of pgtui's own config directories (never the working directory:
+// .env in one of pgtower's own config directories (never the working directory:
 // a .env there most likely belongs to another project).
 func (s *Store) importLegacyDotenv() *Migration {
 	for _, dir := range ownedDirs() {
@@ -135,16 +140,20 @@ func commitMigration(path string, raw []byte, fc fileV2, envPath string, mig *Mi
 	return nil
 }
 
-// ownedDirs are the config directories that belong to pgtui alone.
+// ownedDirs are the config directories that belong to pgtower alone.
 func ownedDirs() []string {
-	if d := strings.TrimSpace(os.Getenv("PGTUI_CONFIG_DIR")); d != "" {
+	if d := Env("CONFIG_DIR"); d != "" {
 		return []string{d}
 	}
 	var dirs []string
 	if d := userConfigDir(); d != "" {
 		dirs = append(dirs, d)
 	}
-	return append(dirs, DefaultConfigDir, "/etc/pgtui")
+	dirs = append(dirs, DefaultConfigDir, "/etc/pgtower")
+	for _, p := range legacyDirPairs() {
+		dirs = append(dirs, p[0])
+	}
+	return dirs
 }
 
 func ownedDir(dir string) bool {
@@ -157,10 +166,10 @@ func ownedDir(dir string) bool {
 	return false
 }
 
-// isPgtuiDotenv reports whether a .env carries pgtui settings.
-func isPgtuiDotenv(env map[string]string) bool {
+// isPgtowerDotenv reports whether a .env carries pgtower (or pgtui-era) settings.
+func isPgtowerDotenv(env map[string]string) bool {
 	for k := range env {
-		if k == "DATABASE_URL" || strings.HasPrefix(k, "PGTUI_") {
+		if k == "DATABASE_URL" || strings.HasPrefix(k, legacyEnvPrefix) || strings.HasPrefix(k, envPrefix) {
 			return true
 		}
 	}
@@ -217,16 +226,21 @@ func legacyDotenv(dir string) (string, map[string]string) {
 }
 
 func applyDotenvSettings(fc *fileV2, env map[string]string) {
+	// .env files predate the rename, so their keys are PGTUI_*.
 	set := func(key string, dst *int) {
+		v := env[legacyEnvPrefix+key]
+		if v == "" {
+			v = env[envPrefix+key]
+		}
 		var n int
-		if _, err := fmt.Sscanf(env[key], "%d", &n); err == nil && n > 0 && *dst == 0 {
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 && *dst == 0 {
 			*dst = n
 		}
 	}
-	set("PGTUI_REFRESH_SECONDS", &fc.RefreshSeconds)
-	set("PGTUI_SCRAM_ITERATIONS", &fc.SCRAMIterations)
-	set("PGTUI_HOST_RAM_MB", &fc.HostRAMMB)
-	set("PGTUI_HOST_CPUS", &fc.HostCPUs)
+	set("REFRESH_SECONDS", &fc.RefreshSeconds)
+	set("SCRAM_ITERATIONS", &fc.SCRAMIterations)
+	set("HOST_RAM_MB", &fc.HostRAMMB)
+	set("HOST_CPUS", &fc.HostCPUs)
 }
 
 // nameFromConn derives a readable name for a migrated connection: its host.
@@ -270,10 +284,10 @@ func (s *Store) Save() error {
 }
 
 func defaultSavePath() string {
-	if f := strings.TrimSpace(os.Getenv("PGTUI_CONFIG")); f != "" {
+	if f := Env("CONFIG"); f != "" {
 		return f
 	}
-	if d := strings.TrimSpace(os.Getenv("PGTUI_CONFIG_DIR")); d != "" {
+	if d := Env("CONFIG_DIR"); d != "" {
 		return filepath.Join(d, "config.yml")
 	}
 	if dirWritable(DefaultConfigDir) {
@@ -286,7 +300,7 @@ func dirWritable(dir string) bool {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false
 	}
-	f, err := os.CreateTemp(dir, ".pgtui-probe-*")
+	f, err := os.CreateTemp(dir, ".pgtower-probe-*")
 	if err != nil {
 		return false
 	}
@@ -295,11 +309,11 @@ func dirWritable(dir string) bool {
 	return true
 }
 
-const configHeader = `# pgtui configuration — https://github.com/9level/pgtui
+const configHeader = `# pgtower configuration — https://github.com/9level/pgtower
 #
-# Managed by pgtui: the Servers screen (press S) saves here. Hand edits
+# Managed by pgtower: the Servers screen (press S) saves here. Hand edits
 # are fine, but comments other than this header are not preserved.
-# Environment variables (DATABASE_URL, PGTUI_*) still take precedence.
+# Environment variables (DATABASE_URL, PGTOWER_*) still take precedence.
 # All keys are documented in config.yml.example.
 
 `

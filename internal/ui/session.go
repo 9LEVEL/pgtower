@@ -5,8 +5,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/9level/pgtui/internal/config"
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/config"
+	"github.com/9level/pgtower/internal/db"
 )
 
 // session is one live server connection: its resolved config, pool manager and

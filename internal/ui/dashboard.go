@@ -8,8 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/9level/pgtui/internal/config"
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/config"
+	"github.com/9level/pgtower/internal/db"
 )
 
 type dashboardView struct {
@@ -120,11 +120,11 @@ func (v *dashboardView) View() string {
 
 	connLines := []string{connHead,
 		stLabel.Render(fmt.Sprintf("active %d · idle %d · tx %d", d.Active, d.Idle, d.IdleInTx))}
-	// Be transparent about pgtui's own footprint: a monitoring tool holding
+	// Be transparent about pgtower's own footprint: a monitoring tool holding
 	// several backends would otherwise inflate "connections used" and make it
 	// look frozen when you kill other sessions.
-	if d.PgtuiConns > 0 {
-		connLines = append(connLines, stKeyHint.Render(fmt.Sprintf("incl. pgtui %d", d.PgtuiConns)))
+	if d.OwnConns > 0 {
+		connLines = append(connLines, stKeyHint.Render(fmt.Sprintf("incl. pgtower %d", d.OwnConns)))
 	}
 
 	row1 := []dashCard{
@@ -138,7 +138,7 @@ func (v *dashboardView) View() string {
 	}
 	row2 := []dashCard{
 		{"Server", []string{stValue.Render(d.Version),
-			stLabel.Render("client: ") + stValue.Render("pgtui "+appVersion(v.cfg.Version)),
+			stLabel.Render("client: ") + stValue.Render("pgtower "+appVersion(v.cfg.Version)),
 			stLabel.Render("longest active query: ") + longStyle.Render(longest)}},
 		{"Replication", replLines},
 	}

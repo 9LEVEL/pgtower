@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/db"
 )
 
 // TestSmoke exercises all the queries against a real Postgres. It only runs

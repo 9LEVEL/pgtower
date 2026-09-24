@@ -1,8 +1,8 @@
-// Package config loads pgtui's configuration: a list of named connections plus
+// Package config loads pgtower's configuration: a list of named connections plus
 // global settings, from config.yml and the environment. Precedence, highest
 // first: environment variables > config.yml > built-in defaults.
 //
-// config.yml is owned by pgtui from format version 2 on: the Connections screen
+// config.yml is owned by pgtower from format version 2 on: the Connections screen
 // saves to it. Older (v1, single-connection) files are migrated in place on
 // first run — see migrate.go.
 package config
@@ -16,9 +16,9 @@ import (
 	"strings"
 )
 
-// DefaultConfigDir is where the installer creates config.yml and where pgtui
+// DefaultConfigDir is where the installer creates config.yml and where pgtower
 // looks for it when no more specific location has one.
-const DefaultConfigDir = "/opt/pgtui"
+const DefaultConfigDir = "/opt/pgtower"
 
 // FileVersion is the config.yml format written by this build.
 const FileVersion = 2
@@ -143,6 +143,11 @@ type fileV2 struct {
 // asks for a first connection.
 func Load() (*Store, error) {
 	s := &Store{}
+	var moved []string
+	var moveErr error
+	if Env("CONFIG") == "" && Env("CONFIG_DIR") == "" {
+		moved, moveErr = relocateLegacyDirs()
+	}
 	path, raw, err := findConfigFile()
 	if err != nil {
 		return nil, err
@@ -161,13 +166,21 @@ func Load() (*Store, error) {
 		s.Migration = s.importLegacyDotenv()
 	}
 
+	if len(moved) > 0 || moveErr != nil {
+		if s.Migration == nil {
+			s.Migration = &Migration{Path: s.Path}
+		}
+		s.Migration.Moved = moved
+		s.Migration.MoveErr = moveErr
+	}
+
 	s.Default = s.file.Default
 	s.Connections = append([]Connection(nil), s.file.Connections...)
-	s.RefreshSeconds = pickInt("PGTUI_REFRESH_SECONDS", s.file.RefreshSeconds, 5)
-	s.SCRAMIterations = pickInt("PGTUI_SCRAM_ITERATIONS", s.file.SCRAMIterations, 0)
-	s.HostRAMMB = pickInt("PGTUI_HOST_RAM_MB", s.file.HostRAMMB, 0)
-	s.HostCPUs = pickInt("PGTUI_HOST_CPUS", s.file.HostCPUs, 0)
-	s.UpdateCheck = pickBool("PGTUI_UPDATE_CHECK", s.file.UpdateCheck, true)
+	s.RefreshSeconds = pickInt("REFRESH_SECONDS", s.file.RefreshSeconds, 5)
+	s.SCRAMIterations = pickInt("SCRAM_ITERATIONS", s.file.SCRAMIterations, 0)
+	s.HostRAMMB = pickInt("HOST_RAM_MB", s.file.HostRAMMB, 0)
+	s.HostCPUs = pickInt("HOST_CPUS", s.file.HostCPUs, 0)
+	s.UpdateCheck = pickBool("UPDATE_CHECK", s.file.UpdateCheck, true)
 
 	if raw := strings.TrimSpace(os.Getenv("DATABASE_URL")); raw != "" {
 		s.Env = &Connection{Name: EnvConnectionName, URL: raw}
@@ -429,11 +442,11 @@ func findConfigFile() (string, []byte, error) {
 }
 
 // configPaths lists candidate config files, highest priority first.
-// PGTUI_CONFIG (a file) or PGTUI_CONFIG_DIR (a directory) replace the search
+// PGTOWER_CONFIG (a file) or PGTOWER_CONFIG_DIR (a directory) replace the search
 // entirely; otherwise: the working directory, next to the binary, the user
 // config dir, and the system locations.
 func configPaths() []string {
-	if f := strings.TrimSpace(os.Getenv("PGTUI_CONFIG")); f != "" {
+	if f := Env("CONFIG"); f != "" {
 		return []string{f}
 	}
 	var paths []string
@@ -444,7 +457,7 @@ func configPaths() []string {
 }
 
 func configDirs() []string {
-	if d := strings.TrimSpace(os.Getenv("PGTUI_CONFIG_DIR")); d != "" {
+	if d := Env("CONFIG_DIR"); d != "" {
 		return []string{d}
 	}
 	dirs := []string{"."}
@@ -454,12 +467,17 @@ func configDirs() []string {
 	if d := userConfigDir(); d != "" {
 		dirs = append(dirs, d)
 	}
-	return append(dirs, DefaultConfigDir, "/etc/pgtui")
+	dirs = append(dirs, DefaultConfigDir, "/etc/pgtower")
+	// pgtower-era directories that could not be moved are still read, last.
+	for _, p := range legacyDirPairs() {
+		dirs = append(dirs, p[0])
+	}
+	return dirs
 }
 
 func userConfigDir() string {
 	if home, err := os.UserConfigDir(); err == nil {
-		return filepath.Join(home, "pgtui")
+		return filepath.Join(home, "pgtower")
 	}
 	return ""
 }
@@ -491,7 +509,7 @@ func orDefault(v, def string) string {
 
 // pickInt resolves a positive integer setting: environment > config.yml > def.
 func pickInt(key string, fileVal, def int) int {
-	if v := os.Getenv(key); v != "" {
+	if v := Env(key); v != "" {
 		var n int
 		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
 			return n
@@ -505,7 +523,7 @@ func pickInt(key string, fileVal, def int) int {
 
 // pickBool resolves a boolean setting: environment > config.yml > def.
 func pickBool(key string, fileVal *bool, def bool) bool {
-	if v := strings.TrimSpace(strings.ToLower(os.Getenv(key))); v != "" {
+	if v := strings.ToLower(Env(key)); v != "" {
 		switch v {
 		case "1", "true", "yes", "on":
 			return true

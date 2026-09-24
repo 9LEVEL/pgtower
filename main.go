@@ -1,4 +1,4 @@
-// Command pgtui is a PostgreSQL administration TUI for sysadmins.
+// Command pgtower is a PostgreSQL administration TUI for sysadmins.
 //
 // It manages one or more Postgres servers (configured in config.yml or via
 // DATABASE_URL) and offers, with keyboard navigation: a health dashboard,
@@ -14,14 +14,15 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/9level/pgtui/internal/config"
-	"github.com/9level/pgtui/internal/ui"
+	"github.com/9level/pgtower/internal/config"
+	"github.com/9level/pgtower/internal/ui"
+	"github.com/9level/pgtower/internal/update"
 )
 
 // version is injected at build time via -ldflags "-X main.version=vX.Y.Z".
 var version = "dev"
 
-const usage = `usage: pgtui [-s NAME] [--list]
+const usage = `usage: pgtower [-s NAME] [--list]
 
 PostgreSQL administration TUI.
 
@@ -31,7 +32,7 @@ PostgreSQL administration TUI.
   -h, --help          this help
 
 Servers are managed in the app (press S) and saved to config.yml, searched in
-./  the binary's dir  ~/.config/pgtui/  /opt/pgtui/  /etc/pgtui/.
+./  the binary's dir  ~/.config/pgtower/  /opt/pgtower/  /etc/pgtower/.
 DATABASE_URL (or PGHOST/PGUSER/…) adds a session-only server that opens first.
 Shortcuts: '?' inside the app.`
 
@@ -42,7 +43,7 @@ func main() {
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "-v" || a == "--version":
-			fmt.Println("pgtui " + version)
+			fmt.Println("pgtower " + version)
 			return
 		case a == "-h" || a == "--help":
 			fmt.Println(usage)
@@ -62,6 +63,9 @@ func main() {
 		}
 	}
 
+	// Started as "pgtui" (e.g. right after a v0.9 self-update): take the new name.
+	renamed, _ := update.AdoptName(os.Args[0])
+
 	store, err := config.Load()
 	if err != nil {
 		fail(1, err.Error())
@@ -80,6 +84,7 @@ func main() {
 	}
 
 	m := ui.New(store, version, startPtr)
+	m.AnnounceRename(renamed)
 	defer m.Close()
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		fail(1, err.Error())
@@ -88,7 +93,7 @@ func main() {
 
 func printServers(s *config.Store) {
 	if len(s.Names()) == 0 {
-		fmt.Println("no servers configured — run pgtui and press S, or set DATABASE_URL")
+		fmt.Println("no servers configured — run pgtower and press S, or set DATABASE_URL")
 		return
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -115,6 +120,6 @@ func printServers(s *config.Store) {
 }
 
 func fail(code int, msg string) {
-	fmt.Fprintln(os.Stderr, "pgtui: "+msg)
+	fmt.Fprintln(os.Stderr, "pgtower: "+msg)
 	os.Exit(code)
 }

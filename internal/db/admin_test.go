@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/db"
 )
 
 func TestBuilders(t *testing.T) {
@@ -177,8 +177,8 @@ func TestAdminRoundtripLive(t *testing.T) {
 		t.Fatalf("Pool: %v", err)
 	}
 
-	const role = "pgtui_selftest_role"
-	const database = "pgtui_selftest_db"
+	const role = "pgtower_selftest_role"
+	const database = "pgtower_selftest_db"
 
 	// preventive cleanup + at the end (idempotent)
 	cleanup := func() {
@@ -235,8 +235,8 @@ func TestForceDropRoleLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	const role = "pgtui_force_role"
-	const database = "pgtui_force_db"
+	const role = "pgtower_force_role"
+	const database = "pgtower_force_db"
 
 	mgr, err := db.NewManager(ctx, dsn, "postgres")
 	if err != nil {
@@ -273,8 +273,8 @@ func TestForceDropRoleLive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pool(%s): %v", database, err)
 	}
-	mustExec("CREATE TABLE", p, "create table pgtui_t (id int)")
-	mustExec("ALTER TABLE OWNER", p, "alter table pgtui_t owner to "+db.QuoteIdent(role))
+	mustExec("CREATE TABLE", p, "create table pgtower_t (id int)")
+	mustExec("ALTER TABLE OWNER", p, "alter table pgtower_t owner to "+db.QuoteIdent(role))
 
 	// force removal by reassigning everything to postgres
 	warnings, err := db.ForceDropRole(ctx, mgr, role, "postgres")
@@ -292,7 +292,7 @@ func TestForceDropRoleLive(t *testing.T) {
 	}
 	// the table must still exist (owner is now postgres)
 	p2, _ := mgr.Pool(ctx, database)
-	d, err := db.DescribeTable(ctx, p2, "public", "pgtui_t")
+	d, err := db.DescribeTable(ctx, p2, "public", "pgtower_t")
 	if err != nil || len(d.Columns) == 0 {
 		t.Errorf("the table disappeared after force-drop (data loss!): %v", err)
 	}
@@ -323,7 +323,7 @@ func TestSCRAMPasswordLoginLive(t *testing.T) {
 		t.Fatalf("Pool: %v", err)
 	}
 
-	const role = "pgtui_scram_role"
+	const role = "pgtower_scram_role"
 	_, _ = db.ExecAdmin(ctx, admin, "DROP ROLE IF EXISTS "+db.QuoteIdent(role))
 	defer func() { _, _ = db.ExecAdmin(ctx, admin, "DROP ROLE IF EXISTS "+db.QuoteIdent(role)) }()
 
@@ -415,10 +415,10 @@ func TestDescribeLive(t *testing.T) {
 	}
 }
 
-// TestDashboardCountsPgtuiConnsLive proves the dashboard sees pgtui's own
-// backends (application_name = 'pgtui'), so the UI can disclose that footprint
+// TestDashboardCountsOwnConnsLive proves the dashboard sees pgtower's own
+// backends (application_name = 'pgtower'), so the UI can disclose that footprint
 // instead of letting it silently inflate "connections used".
-func TestDashboardCountsPgtuiConnsLive(t *testing.T) {
+func TestDashboardCountsOwnConnsLive(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set")
@@ -436,11 +436,11 @@ func TestDashboardCountsPgtuiConnsLive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDashboard: %v", err)
 	}
-	if d.PgtuiConns < 1 {
-		t.Errorf("PgtuiConns = %d, want >= 1 (our own connection carries application_name=pgtui)", d.PgtuiConns)
+	if d.OwnConns < 1 {
+		t.Errorf("OwnConns = %d, want >= 1 (our own connection carries application_name=pgtower)", d.OwnConns)
 	}
-	if d.TotalConns < d.PgtuiConns {
-		t.Errorf("TotalConns %d < PgtuiConns %d — impossible", d.TotalConns, d.PgtuiConns)
+	if d.TotalConns < d.OwnConns {
+		t.Errorf("TotalConns %d < OwnConns %d — impossible", d.TotalConns, d.OwnConns)
 	}
 }
 
@@ -461,8 +461,8 @@ func TestRoleAccessLive(t *testing.T) {
 	defer mgr.Close()
 	admin, _ := mgr.Pool(ctx, "postgres")
 
-	const role = "pgtui_access_selftest"
-	const database = "pgtui_access_selftest_db"
+	const role = "pgtower_access_selftest"
+	const database = "pgtower_access_selftest_db"
 	cleanup := func() {
 		_, _ = db.ExecAdmin(ctx, admin, "DROP DATABASE IF EXISTS "+db.QuoteIdent(database))
 		_, _ = db.ExecAdmin(ctx, admin, "DROP ROLE IF EXISTS "+db.QuoteIdent(role))
@@ -714,7 +714,7 @@ func TestRoleAttributesRoundtripLive(t *testing.T) {
 		t.Fatalf("Pool: %v", err)
 	}
 
-	const role = "pgtui_attrs_selftest"
+	const role = "pgtower_attrs_selftest"
 	cleanup := func() { _, _ = db.ExecAdmin(ctx, p, "DROP ROLE IF EXISTS "+db.QuoteIdent(role)) }
 	cleanup()
 	defer cleanup()
@@ -797,8 +797,8 @@ func TestRevokeRoundtripLive(t *testing.T) {
 		t.Fatalf("Pool: %v", err)
 	}
 
-	const role = "pgtui_revoke_selftest"
-	const database = "pgtui_revoke_selftest_db"
+	const role = "pgtower_revoke_selftest"
+	const database = "pgtower_revoke_selftest_db"
 	cleanup := func() {
 		_, _ = db.ExecAdmin(ctx, admin, "DROP DATABASE IF EXISTS "+db.QuoteIdent(database))
 		_, _ = db.ExecAdmin(ctx, admin, "DROP ROLE IF EXISTS "+db.QuoteIdent(role))

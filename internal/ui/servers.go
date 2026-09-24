@@ -10,8 +10,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/9level/pgtui/internal/config"
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/config"
+	"github.com/9level/pgtower/internal/db"
+	"github.com/9level/pgtower/internal/update"
 )
 
 // serversModal is the connection manager (S / ctrl+o): list the configured
@@ -121,7 +122,7 @@ func (m *Model) serversKey(msg tea.KeyMsg) tea.Cmd {
 			s.close()
 		}
 	case "q":
-		m.quitConfirm.ask("Quit pgtui?", "Leave pgtui? This closes the app and its database connections.")
+		m.quitConfirm.ask("Quit pgtower?", "Leave pgtower? This closes the app and its database connections.")
 	case "up", "k":
 		if len(names) > 0 {
 			s.cursor = (s.cursor - 1 + len(names)) % len(names)
@@ -419,18 +420,52 @@ func connErrorNotice(cfg *config.Config, e *db.ConnError) (string, string, bool)
 	return "Cannot connect to “" + cfg.Name + "” — " + e.Title, b.String(), true
 }
 
+// renameNotice explains the pgtui → pgtower move. ok=false when there was
+// nothing left from pgtui to deal with.
+func renameNotice(bin update.NameResult, moved []string, moveErr error, legacyEnv []string) (string, string, bool, bool) {
+	if !bin.Renamed && bin.Manual == "" && len(moved) == 0 && moveErr == nil && len(legacyEnv) == 0 {
+		return "", "", false, false
+	}
+	var b strings.Builder
+	b.WriteString("pgtui is now pgtower — same tool, new name. Nothing about your servers changed.\n\n")
+	if bin.Renamed {
+		b.WriteString("• Binary renamed to " + bin.Path + "\n")
+		if bin.Alias != "" {
+			b.WriteString("  " + bin.Alias + " stays as a shortcut for old scripts; remove it whenever you like.\n")
+		}
+	}
+	for _, mv := range moved {
+		b.WriteString("• Config moved: " + mv + "\n")
+	}
+	if len(legacyEnv) > 0 {
+		b.WriteString("• Rename these variables to PGTOWER_*; the old names still work for now: " +
+			strings.Join(legacyEnv, ", ") + "\n")
+	}
+	danger := false
+	if bin.Manual != "" {
+		danger = true
+		b.WriteString("\nThe binary could not be renamed automatically. " + bin.Manual + "\n")
+	}
+	if moveErr != nil {
+		danger = true
+		b.WriteString("\nSome config could not be moved (it is still read from the old place): " + moveErr.Error() + "\n")
+	}
+	b.WriteString("\nNew home: https://pgtower.sh · https://github.com/9level/pgtower")
+	return "Welcome to pgtower", b.String(), danger, true
+}
+
 // migrationNotice is the one-time explanation shown on the run that upgraded
 // a legacy configuration.
 func migrationNotice(mig *config.Migration, version string) (string, string, bool) {
 	var b strings.Builder
 	if mig.Err != nil {
-		b.WriteString("pgtui " + appVersion(version) + " manages several servers, and your old configuration " +
+		b.WriteString("pgtower " + appVersion(version) + " manages several servers, and your old configuration " +
 			"was converted — but the new file could not be written:\n\n  " + mig.Err.Error() + "\n\n" +
-			"pgtui is running with the converted settings for now. Fix the permission and save " +
+			"pgtower is running with the converted settings for now. Fix the permission and save " +
 			"any change from the Servers screen (S) to finish the upgrade. Your original files were not touched.")
 		return "Configuration upgrade incomplete", b.String(), true
 	}
-	b.WriteString("pgtui " + appVersion(version) + " can manage several PostgreSQL servers (press S). " +
+	b.WriteString("pgtower " + appVersion(version) + " can manage several PostgreSQL servers (press S). " +
 		"Your configuration was upgraded automatically:\n\n")
 	b.WriteString("• Migrated from: " + strings.Join(mig.From, " + ") + "\n")
 	if len(mig.Imported) > 0 {

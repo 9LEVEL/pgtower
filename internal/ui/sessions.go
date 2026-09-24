@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/db"
 )
 
 type sessionsView struct {
@@ -207,7 +207,7 @@ func (v *sessionsView) viewBody() string {
 		head += "   " + v.status
 	}
 	if len(v.sessions) == 0 && !v.loading {
-		return head + "\n\n  " + stStatus.Render("No client sessions other than pgtui.")
+		return head + "\n\n  " + stStatus.Render("No client sessions other than pgtower.")
 	}
 	return head + "\n" + v.tbl.View()
 }

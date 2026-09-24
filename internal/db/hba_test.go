@@ -3,7 +3,7 @@ package db_test
 import (
 	"testing"
 
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/db"
 )
 
 func TestBuildHBALine(t *testing.T) {

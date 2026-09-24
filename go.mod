@@ -1,4 +1,4 @@
-module github.com/9level/pgtui
+module github.com/9level/pgtower
 
 go 1.26
 

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/db"
 )
 
 // TestConnLimitAndDiagnosticsLive proves the CONNECTION LIMIT builders apply and
@@ -30,8 +30,8 @@ func TestConnLimitAndDiagnosticsLive(t *testing.T) {
 		t.Fatalf("Pool: %v", err)
 	}
 
-	const role = "pgtui_connlimit_role"
-	const database = "pgtui_connlimit_db"
+	const role = "pgtower_connlimit_role"
+	const database = "pgtower_connlimit_db"
 	_, _ = db.ExecAdmin(ctx, p, "DROP DATABASE IF EXISTS "+db.QuoteIdent(database))
 	_, _ = db.ExecAdmin(ctx, p, "DROP ROLE IF EXISTS "+db.QuoteIdent(role))
 	defer func() {

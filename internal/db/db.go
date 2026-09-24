@@ -33,7 +33,7 @@ func NewManager(ctx context.Context, dsn, adminDB string) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid dsn: %w", err)
 	}
-	// Keep pgtui's own footprint small so it doesn't dominate the cluster's
+	// Keep pgtower's own footprint small so it doesn't dominate the cluster's
 	// connection count (a monitoring tool that shows up as 20 backends makes the
 	// dashboard's "connections used" misleading). Few connections per database,
 	// released quickly once idle, and reclaimed by frequent health checks.
@@ -46,7 +46,7 @@ func NewManager(ctx context.Context, dsn, adminDB string) (*Manager, error) {
 	if cfg.ConnConfig.RuntimeParams == nil {
 		cfg.ConnConfig.RuntimeParams = map[string]string{}
 	}
-	cfg.ConnConfig.RuntimeParams["application_name"] = "pgtui"
+	cfg.ConnConfig.RuntimeParams["application_name"] = "pgtower"
 
 	m := &Manager{
 		baseCfg: cfg,

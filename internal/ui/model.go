@@ -10,9 +10,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/9level/pgtui/internal/config"
-	"github.com/9level/pgtui/internal/db"
-	"github.com/9level/pgtui/internal/update"
+	"github.com/9level/pgtower/internal/config"
+	"github.com/9level/pgtower/internal/db"
+	"github.com/9level/pgtower/internal/update"
 )
 
 // tabView is the contract for each TUI tab.
@@ -89,10 +89,24 @@ func New(store *config.Store, version string, start *config.Connection) *Model {
 		servers: newServersModal()}
 	// Only offer updates for real release builds the user hasn't opted out of.
 	m.updateEnabled = store.UpdateCheck && update.IsRelease(version) && !update.OptedOut()
-	if mig := store.Migration; mig != nil {
+	if mig := store.Migration; mig != nil && len(mig.From) > 0 {
 		m.notify(migrationNotice(mig, version))
 	}
 	return m
+}
+
+// AnnounceRename queues the one-time "pgtui is now pgtower" notice when this
+// run finished (or could not finish) moving a pgtui-era install to the new
+// name: the binary, the config directories, PGTUI_* variables.
+func (m *Model) AnnounceRename(bin update.NameResult) {
+	var moved []string
+	var moveErr error
+	if mig := m.store.Migration; mig != nil {
+		moved, moveErr = mig.Moved, mig.MoveErr
+	}
+	if title, body, danger, ok := renameNotice(bin, moved, moveErr, config.LegacyEnv()); ok {
+		m.notify(title, body, danger)
+	}
 }
 
 // newConnected builds a model around an already-open manager (tests).
@@ -181,7 +195,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updating = false
 		if msg.ok {
 			m.updateAlert.show(m.width, m.height, "Update complete",
-				"Updated to "+m.updateLatest+".\n\nRestart pgtui to run the new version.", false)
+				"Updated to "+m.updateLatest+".\n\nRestart pgtower to run the new version.", false)
 		} else {
 			m.updateAlert.show(m.width, m.height, "Update", msg.text, msg.danger)
 		}
@@ -367,7 +381,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cancelConnect()
 			m.openServers()
 		case "q":
-			m.quitConfirm.ask("Quit pgtui?", "Leave pgtui?")
+			m.quitConfirm.ask("Quit pgtower?", "Leave pgtower?")
 		case "S", "ctrl+o":
 			m.openServers()
 		}
@@ -378,7 +392,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !m.capturing() {
 		switch msg.String() {
 		case "q":
-			m.quitConfirm.ask("Quit pgtui?", "Leave pgtui? This closes the app and its database connections.")
+			m.quitConfirm.ask("Quit pgtower?", "Leave pgtower? This closes the app and its database connections.")
 			return m, nil
 		case "?":
 			m.openHelp()
@@ -507,7 +521,7 @@ func appVersion(v string) string {
 }
 
 func (m *Model) renderHeader() string {
-	left := stTitle.Render(" pgtui ") + stHeaderVer.Render(appVersion(m.version))
+	left := stTitle.Render(" pgtower ") + stHeaderVer.Render(appVersion(m.version))
 
 	var conn string
 	switch {

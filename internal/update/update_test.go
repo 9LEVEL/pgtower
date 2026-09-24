@@ -45,15 +45,15 @@ func TestIsRelease(t *testing.T) {
 
 func TestAssetName(t *testing.T) {
 	got := AssetName("v0.5.0")
-	want := "pgtui-v0.5.0-" + runtime.GOOS + "-" + runtime.GOARCH
+	want := "pgtower-v0.5.0-" + runtime.GOOS + "-" + runtime.GOARCH
 	if got != want {
 		t.Errorf("AssetName = %q, want %q", got, want)
 	}
 }
 
 func TestSumFor(t *testing.T) {
-	sums := "aaa  pgtui-v0.5.0-linux-amd64\nbbb  pgtui-v0.5.0-darwin-arm64\n"
-	if got := sumFor(sums, "pgtui-v0.5.0-darwin-arm64"); got != "bbb" {
+	sums := "aaa  pgtower-v0.5.0-linux-amd64\nbbb  pgtower-v0.5.0-darwin-arm64\n"
+	if got := sumFor(sums, "pgtower-v0.5.0-darwin-arm64"); got != "bbb" {
 		t.Errorf("sumFor = %q, want bbb", got)
 	}
 	if got := sumFor(sums, "missing"); got != "" {

@@ -174,7 +174,7 @@ func Probe(ctx context.Context, dsn, host, port string) (ProbeResult, error) {
 			Detail: err.Error(), Err: err}
 	}
 	cfg.ConnectTimeout = connectTimeout
-	cfg.RuntimeParams["application_name"] = "pgtui"
+	cfg.RuntimeParams["application_name"] = "pgtower"
 
 	start := time.Now()
 	conn, err := pgx.ConnectConfig(ctx, cfg)

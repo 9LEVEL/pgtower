@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/9level/pgtui/internal/db"
+	"github.com/9level/pgtower/internal/db"
 )
 
 // TestListHBARulesLive reads the parsed pg_hba rules and the file path from a
@@ -58,11 +58,11 @@ func TestListHBARulesLive(t *testing.T) {
 // TestApplyHBAContentLive proves the guarded pg_hba writer end-to-end: it appends
 // a valid rule (which must appear), then attempts an INVALID change (which must
 // be rejected and rolled back, leaving a parseable file). It restores the
-// original file at the end. Gated behind PGTUI_HBA_LIVE_TEST because it rewrites
+// original file at the end. Gated behind PGTOWER_HBA_LIVE_TEST because it rewrites
 // pg_hba.conf on the target cluster.
 func TestApplyHBAContentLive(t *testing.T) {
-	if os.Getenv("PGTUI_HBA_LIVE_TEST") == "" {
-		t.Skip("set PGTUI_HBA_LIVE_TEST=1 to run (rewrites pg_hba.conf on the target)")
+	if os.Getenv("PGTOWER_HBA_LIVE_TEST") == "" {
+		t.Skip("set PGTOWER_HBA_LIVE_TEST=1 to run (rewrites pg_hba.conf on the target)")
 	}
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
