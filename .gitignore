@@ -9,6 +9,8 @@
 *.local
 config.yml
 config.yaml
+*.v1.bak
+*.v1.bak.*
 
 # go
 /vendor/
