@@ -27,8 +27,10 @@ func (a *alertModal) show(w, h int, title, body string, danger bool) {
 	a.title = title
 	a.danger = danger
 	a.vp.Width = clampInt(w-12, 30, 96)
-	a.vp.Height = clampInt(h-8, 4, 24)
-	a.vp.SetContent(lipgloss.NewStyle().Width(a.vp.Width).Render(body))
+	content := lipgloss.NewStyle().Width(a.vp.Width).Render(body)
+	// Fit short messages; long ones scroll.
+	a.vp.Height = clampInt(lipgloss.Height(content), 4, clampInt(h-8, 4, 24))
+	a.vp.SetContent(content)
 	a.vp.GotoTop()
 }
 

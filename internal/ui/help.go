@@ -28,6 +28,7 @@ func helpBody() string {
 		{"Global navigation", ""},
 		{"1 – 7", "switch tab"},
 		{"tab / shift+tab", "next / previous tab"},
+		{"S  /  ctrl+o", "servers: switch, add, edit, test, set default"},
 		{"?", "open/close this help"},
 		{"q  /  ctrl+c", "quit"},
 		{"", ""},
@@ -110,13 +111,18 @@ func (m *Model) overlayHelp(bg string) string {
 	wrap := lipgloss.NewStyle().Width(w)
 
 	// --- About / identity block ---
-	ident := stTitle.Render(" pgtui ") + stHeaderVer.Render(appVersion(m.cfg.Version)) +
+	ident := stTitle.Render(" pgtui ") + stHeaderVer.Render(appVersion(m.version)) +
 		stKeyHint.Render("   ") + stBrand.Render(brand)
 	desc := wrap.Foreground(colMuted).Render(
 		"PostgreSQL administration TUI — dashboard, databases & tables, query runner, locks, sessions and roles.")
-	conn := wrap.Render(
-		stLabel.Render("connection  ") + stValue.Render(fmt.Sprintf("%s@%s:%s", m.cfg.User, m.cfg.Host, m.cfg.Port)) +
-			stLabel.Render("    admin db  ") + stValue.Render(m.mgr.AdminDB()))
+	conn := wrap.Render(stLabel.Render("connection  ") + stValue.Render("not connected"))
+	if m.sess != nil {
+		c := m.sess.cfg
+		conn = wrap.Render(
+			stLabel.Render("server  ") + stValue.Render(c.Name) +
+				stLabel.Render("    connection  ") + stValue.Render(fmt.Sprintf("%s@%s:%s", c.User, c.Host, c.Port)) +
+				stLabel.Render("    admin db  ") + stValue.Render(m.sess.mgr.AdminDB()))
+	}
 	rule := stKeyHint.Render(strings.Repeat("─", w))
 	about := ident + "\n\n" + desc + "\n" + conn
 

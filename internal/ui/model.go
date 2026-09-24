@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -30,9 +32,19 @@ type tabView interface {
 
 // Model is the root Bubble Tea model.
 type Model struct {
-	cfg  *config.Config
-	mgr  *db.Manager
-	tabs []tabView
+	store   *config.Store
+	version string
+
+	// sess is the live connection (nil until the first one succeeds); gen
+	// numbers sessions so stale results can be told apart (see session).
+	sess *session
+	gen  int
+
+	// connecting is the name of the connection being opened ("" = idle);
+	// attempt invalidates a connect the user abandoned or superseded.
+	start      *config.Connection
+	connecting string
+	attempt    int
 
 	active int
 	width  int
@@ -43,6 +55,14 @@ type Model struct {
 	status   string
 	fatalErr error
 	quitting bool
+
+	// servers is the connection manager (S / ctrl+o).
+	servers serversModal
+
+	// notices queues model-level alerts (connection errors, the one-time
+	// migration notice) so one never hides another.
+	notice  alertModal
+	notices []pendingNotice
 
 	// update checker (startup "a newer release is available" prompt)
 	updateEnabled bool
@@ -56,33 +76,54 @@ type Model struct {
 	quitConfirm confirmModal
 }
 
-// New builds the root model with all tabs.
-func New(cfg *config.Config, mgr *db.Manager) *Model {
-	m := &Model{cfg: cfg, mgr: mgr, helpVP: viewport.New(60, 10),
-		updateAlert: newAlertModal(), quitConfirm: newConfirmModal()}
-	m.tabs = []tabView{
-		newDashboardView(cfg, mgr),
-		newDatabasesView(mgr),
-		newQueryView(cfg, mgr),
-		newLocksView(mgr),
-		newSessionsView(mgr),
-		newRolesView(cfg, mgr),
-		newTuningView(cfg, mgr),
-	}
+type pendingNotice struct {
+	title, body string
+	danger      bool
+}
+
+// New builds the root model. start is the connection to open right away; nil
+// opens the Servers screen so the user can pick or create one.
+func New(store *config.Store, version string, start *config.Connection) *Model {
+	m := &Model{store: store, version: version, start: start, helpVP: viewport.New(60, 10),
+		updateAlert: newAlertModal(), notice: newAlertModal(), quitConfirm: newConfirmModal(),
+		servers: newServersModal()}
 	// Only offer updates for real release builds the user hasn't opted out of.
-	m.updateEnabled = cfg.UpdateCheck && update.IsRelease(cfg.Version) && !update.OptedOut()
+	m.updateEnabled = store.UpdateCheck && update.IsRelease(version) && !update.OptedOut()
+	if mig := store.Migration; mig != nil {
+		m.notify(migrationNotice(mig, version))
+	}
 	return m
 }
 
+// newConnected builds a model around an already-open manager (tests).
+func newConnected(cfg *config.Config, mgr *db.Manager) *Model {
+	m := New(&config.Store{UpdateCheck: cfg.UpdateCheck}, cfg.Version, nil)
+	m.gen = 1
+	m.sess = newSession(m.gen, cfg, mgr)
+	return m
+}
+
+// Close releases the active session's connections.
+func (m *Model) Close() {
+	if m.sess != nil && m.sess.mgr != nil {
+		m.sess.mgr.Close()
+	}
+}
+
 func (m *Model) Init() tea.Cmd {
-	cmds := make([]tea.Cmd, 0, len(m.tabs)+1)
-	for _, t := range m.tabs {
-		if c := t.Init(); c != nil {
-			cmds = append(cmds, c)
+	var cmds []tea.Cmd
+	switch {
+	case m.sess != nil:
+		for _, t := range m.sess.tabs {
+			cmds = append(cmds, m.sess.scope(t.Init()))
 		}
+	case m.start != nil:
+		cmds = append(cmds, m.connect(*m.start))
+	default:
+		m.openServers()
 	}
 	if m.updateEnabled {
-		cmds = append(cmds, checkUpdateCmd(m.cfg.Version))
+		cmds = append(cmds, checkUpdateCmd(m.version))
 	}
 	return tea.Batch(cmds...)
 }
@@ -91,11 +132,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		bodyH := m.bodyHeight()
-		for _, t := range m.tabs {
-			t.SetSize(msg.Width, bodyH)
+		if m.sess != nil {
+			for _, t := range m.sess.tabs {
+				t.SetSize(msg.Width, m.bodyHeight())
+			}
 		}
 		m.sizeHelpViewport()
+		m.flushNotices()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -103,16 +146,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		// Route the mouse only to the active tab.
-		return m, m.tabs[m.active].Update(msg)
+		if m.sess == nil {
+			return m, nil
+		}
+		return m, m.sess.scope(m.sess.tabs[m.active].Update(msg))
+
+	case scopedMsg:
+		if m.sess == nil || msg.gen != m.sess.gen {
+			dbg("drop stale %T from session %d", msg.msg, msg.gen)
+			return m, nil
+		}
+		return m.Update(msg.msg)
+
+	case connectedMsg:
+		return m, m.handleConnected(msg)
+
+	case probeMsg:
+		m.servers.probeDone(msg)
+		return m, nil
 
 	case statusMsg:
 		m.status = string(msg)
 		return m, nil
 
 	case updateCheckedMsg:
-		if msg.err == nil && update.IsNewer(msg.latest, m.cfg.Version) {
+		if msg.err == nil && update.IsNewer(msg.latest, m.version) {
 			m.updateLatest = msg.latest
-			m.updateMenu.open("Update available · "+appVersion(m.cfg.Version)+" → "+msg.latest,
+			m.updateMenu.open("Update available · "+appVersion(m.version)+" → "+msg.latest,
 				[]string{"Update now", "Not now", "Never suggest again"})
 		}
 		return m, nil
@@ -128,12 +188,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Non-key messages (DB results, tick) are broadcast to all tabs — each one
+	// Other messages (DB results, ticks) are broadcast to all tabs — each one
 	// ignores what it doesn't recognize.
+	if m.sess == nil {
+		return m, nil
+	}
 	var cmds []tea.Cmd
-	for _, t := range m.tabs {
+	for _, t := range m.sess.tabs {
 		if c := t.Update(msg); c != nil {
-			cmds = append(cmds, c)
+			cmds = append(cmds, m.sess.scope(c))
 		}
 	}
 	return m, tea.Batch(cmds...)
@@ -142,16 +205,103 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // statusMsg updates the transient status line.
 type statusMsg string
 
+// connectedMsg reports the outcome of opening a connection.
+type connectedMsg struct {
+	attempt int
+	cfg     *config.Config
+	mgr     *db.Manager
+	err     *db.ConnError
+}
+
+// connectTotalTimeout bounds a whole connect (dial + auth + first ping).
+const connectTotalTimeout = 20 * time.Second
+
+// connect opens c in the background; the result arrives as connectedMsg. The
+// current session (if any) stays usable until the new one is ready.
+func (m *Model) connect(c config.Connection) tea.Cmd {
+	cfg, err := m.store.Resolve(c, m.version)
+	if err != nil {
+		m.notify("Invalid connection “"+c.Name+"”", err.Error(), true)
+		return nil
+	}
+	m.attempt++
+	attempt := m.attempt
+	m.connecting = c.Name
+	m.status = ""
+	dbg("connect attempt=%d name=%q host=%s", attempt, c.Name, cfg.Host)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), connectTotalTimeout)
+		defer cancel()
+		mgr, err := db.NewManager(ctx, cfg.URL, cfg.AdminDB)
+		if err != nil {
+			return connectedMsg{attempt: attempt, cfg: cfg, err: db.ExplainConnect(err, cfg.Host, cfg.Port)}
+		}
+		return connectedMsg{attempt: attempt, cfg: cfg, mgr: mgr}
+	}
+}
+
+// cancelConnect abandons the pending connect; its result will be discarded.
+func (m *Model) cancelConnect() {
+	m.attempt++
+	m.connecting = ""
+}
+
+func (m *Model) handleConnected(msg connectedMsg) tea.Cmd {
+	if msg.attempt != m.attempt {
+		// Superseded or cancelled: don't leak its pools.
+		if msg.mgr != nil {
+			go msg.mgr.Close()
+		}
+		return nil
+	}
+	m.connecting = ""
+	if msg.err != nil {
+		m.notify(connErrorNotice(msg.cfg, msg.err))
+		if m.sess == nil {
+			m.openServers()
+		}
+		return nil
+	}
+
+	m.sess.close()
+	m.gen++
+	m.sess = newSession(m.gen, msg.cfg, msg.mgr)
+	m.servers.close()
+	m.status = "connected to " + msg.cfg.Name
+	cmds := make([]tea.Cmd, 0, len(m.sess.tabs))
+	for _, t := range m.sess.tabs {
+		t.SetSize(m.width, m.bodyHeight())
+		cmds = append(cmds, m.sess.scope(t.Init()))
+	}
+	return tea.Batch(cmds...)
+}
+
+// notify shows an alert, or queues it behind the one on screen (or until the
+// first window size is known).
+func (m *Model) notify(title, body string, danger bool) {
+	m.notices = append(m.notices, pendingNotice{title, body, danger})
+	m.flushNotices()
+}
+
+func (m *Model) flushNotices() {
+	if m.notice.active || m.width == 0 || len(m.notices) == 0 {
+		return
+	}
+	n := m.notices[0]
+	m.notices = m.notices[1:]
+	m.notice.show(m.width, m.height, n.title, n.body, n.danger)
+}
+
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Never log the actual key while a field is capturing text — it could be a
 	// password or other secret being typed into a form.
-	capturingNow := m.tabs[m.active].CapturingInput()
+	capturingNow := m.capturing()
 	keyStr := msg.String()
 	if capturingNow {
 		keyStr = "<redacted>"
 	}
-	dbg("key=%q type=%d active=%d(%s) capturing=%v help=%v", keyStr, msg.Type,
-		m.active, m.tabs[m.active].Title(), capturingNow, m.showHelp)
+	dbg("key=%q type=%d active=%d capturing=%v help=%v", keyStr, msg.Type,
+		m.active, capturingNow, m.showHelp)
 	// ctrl+c always quits.
 	if msg.Type == tea.KeyCtrlC {
 		m.quitting = true
@@ -174,6 +324,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Connection errors and notices.
+	if m.notice.active {
+		if m.notice.update(msg) {
+			m.flushNotices()
+		}
+		return m, nil
+	}
+
 	// Quit confirmation ('q' opened it; y/enter leaves, n/esc stays).
 	if m.quitConfirm.active {
 		switch m.quitConfirm.update(msg) {
@@ -184,6 +342,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, nil
+	}
+
+	// Servers screen.
+	if m.servers.active {
+		return m, m.serversKey(msg)
 	}
 
 	// Help overlay: ↑↓ scroll; ?/esc/q close.
@@ -197,10 +360,22 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	capturing := m.tabs[m.active].CapturingInput()
+	// While connecting without a session there is nothing else to drive.
+	if m.sess == nil {
+		switch msg.String() {
+		case "esc":
+			m.cancelConnect()
+			m.openServers()
+		case "q":
+			m.quitConfirm.ask("Quit pgtui?", "Leave pgtui?")
+		case "S", "ctrl+o":
+			m.openServers()
+		}
+		return m, nil
+	}
 
 	// Global keys only when the tab is not capturing text.
-	if !capturing {
+	if !m.capturing() {
 		switch msg.String() {
 		case "q":
 			m.quitConfirm.ask("Quit pgtui?", "Leave pgtui? This closes the app and its database connections.")
@@ -208,21 +383,32 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "?":
 			m.openHelp()
 			return m, nil
+		case "S", "ctrl+o":
+			m.openServers()
+			return m, nil
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			idx := int(msg.String()[0] - '1')
-			if idx < len(m.tabs) {
+			if idx < len(m.sess.tabs) {
 				return m, m.switchTo(idx)
 			}
 			return m, nil
 		case "tab":
-			return m, m.switchTo((m.active + 1) % len(m.tabs))
+			return m, m.switchTo((m.active + 1) % len(m.sess.tabs))
 		case "shift+tab":
-			return m, m.switchTo((m.active - 1 + len(m.tabs)) % len(m.tabs))
+			return m, m.switchTo((m.active - 1 + len(m.sess.tabs)) % len(m.sess.tabs))
 		}
 	}
 
 	m.status = ""
-	return m, m.tabs[m.active].Update(msg)
+	return m, m.sess.scope(m.sess.tabs[m.active].Update(msg))
+}
+
+// capturing reports whether text input currently owns the keyboard.
+func (m *Model) capturing() bool {
+	if m.servers.capturing() {
+		return true
+	}
+	return m.sess != nil && m.sess.tabs[m.active].CapturingInput()
 }
 
 // switchTo switches the active tab and triggers its Init (reloads data).
@@ -233,8 +419,8 @@ func (m *Model) switchTo(idx int) tea.Cmd {
 	}
 	m.active = idx
 	m.status = ""
-	m.tabs[idx].SetSize(m.width, m.bodyHeight())
-	return m.tabs[idx].Init()
+	m.sess.tabs[idx].SetSize(m.width, m.bodyHeight())
+	return m.sess.scope(m.sess.tabs[idx].Init())
 }
 
 func (m *Model) View() string {
@@ -248,7 +434,7 @@ func (m *Model) View() string {
 	header := m.renderHeader()
 	tabbar := m.renderTabBar()
 	footer := m.renderFooter()
-	body := m.tabs[m.active].View()
+	body := m.renderBody()
 
 	page := lipgloss.JoinVertical(lipgloss.Left, header, tabbar, body, footer)
 
@@ -264,10 +450,28 @@ func (m *Model) View() string {
 	if m.updateMenu.active {
 		return m.updateMenu.view(m.width, m.height)
 	}
+	if m.notice.active {
+		return m.notice.view(m.width, m.height)
+	}
 	if m.quitConfirm.active {
 		return m.quitConfirm.view(m.width, m.height)
 	}
+	if m.servers.active {
+		return m.serversView()
+	}
 	return page
+}
+
+func (m *Model) renderBody() string {
+	if m.sess != nil {
+		return m.sess.tabs[m.active].View()
+	}
+	msg := stLabel.Render("Not connected. Press ") + stKey.Render("S") + stLabel.Render(" to choose a server.")
+	if m.connecting != "" {
+		msg = stLabel.Render("Connecting to ") + stValue.Render(m.connecting) +
+			stLabel.Render("…   ") + stKeyHint.Render("esc cancel")
+	}
+	return lipgloss.Place(m.width, m.bodyHeight(), lipgloss.Center, lipgloss.Center, msg)
 }
 
 // bodyHeight computes the available height for the tab body.
@@ -289,10 +493,20 @@ func appVersion(v string) string {
 }
 
 func (m *Model) renderHeader() string {
-	left := stTitle.Render(" pgtui ") + stHeaderVer.Render(appVersion(m.cfg.Version))
+	left := stTitle.Render(" pgtui ") + stHeaderVer.Render(appVersion(m.version))
 
-	conn := stStatus.Render(fmt.Sprintf(" %s@%s:%s • admin db: %s ",
-		m.cfg.User, m.cfg.Host, m.cfg.Port, m.mgr.AdminDB()))
+	var conn string
+	switch {
+	case m.sess != nil:
+		c := m.sess.cfg
+		conn = tagBadge(c.Tag) + stServer.Render(" "+c.Name+" ") +
+			stStatus.Render(fmt.Sprintf(" %s@%s:%s • admin db: %s ", c.User, c.Host, c.Port, m.sess.mgr.AdminDB()))
+	default:
+		conn = stStatus.Render(" not connected ")
+	}
+	if m.connecting != "" {
+		conn = stWarnV.Render(" connecting to "+m.connecting+"… ") + conn
+	}
 	right := conn + stBrand.Render(brand+" ")
 
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
@@ -303,8 +517,11 @@ func (m *Model) renderHeader() string {
 }
 
 func (m *Model) renderTabBar() string {
+	if m.sess == nil {
+		return ""
+	}
 	var parts []string
-	for i, t := range m.tabs {
+	for i, t := range m.sess.tabs {
 		label := fmt.Sprintf("%d %s", i+1, t.Title())
 		if i == m.active {
 			parts = append(parts, stTabActive.Render(label))
@@ -319,9 +536,13 @@ func (m *Model) renderFooter() string {
 	if m.fatalErr != nil {
 		return stErr.Render("error: " + m.fatalErr.Error())
 	}
-	tabHints := m.tabs[m.active].FooterHints()
+	var tabHints string
+	if m.sess != nil {
+		tabHints = m.sess.tabs[m.active].FooterHints()
+	}
 	global := strings.Join([]string{
 		hint("1-7", "tabs"),
+		hint("S", "servers"),
 		hint("?", "help"),
 		hint("q", "quit"),
 	}, "   ")

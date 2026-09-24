@@ -62,7 +62,7 @@ func TestModelNavigationRender(t *testing.T) {
 	defer mgr.Close()
 
 	cfg := &config.Config{Host: "192.0.2.10", Port: "5432", User: "postgres", AdminDB: "postgres", RefreshSeconds: 5, Version: "v9.9.9"}
-	var m tea.Model = New(cfg, mgr)
+	var m tea.Model = newConnected(cfg, mgr)
 
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
@@ -112,7 +112,7 @@ func TestQueryDatabasePicker(t *testing.T) {
 	defer mgr.Close()
 
 	cfg := &config.Config{Host: "h", Port: "5432", User: "postgres", AdminDB: "postgres", RefreshSeconds: 5}
-	var m tea.Model = New(cfg, mgr)
+	var m tea.Model = newConnected(cfg, mgr)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	// go to the Query tab and feed the database list (broadcast)
@@ -220,7 +220,7 @@ func TestSessionsAndRolesRender(t *testing.T) {
 	mgr := testManager(t)
 	defer mgr.Close()
 	cfg := &config.Config{Host: "h", Port: "5432", User: "postgres", AdminDB: "postgres", RefreshSeconds: 5}
-	var m tea.Model = New(cfg, mgr)
+	var m tea.Model = newConnected(cfg, mgr)
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 130, Height: 40})
 
 	// Tab 5: Sessions
@@ -699,7 +699,7 @@ func TestUpdatePrompt(t *testing.T) {
 	defer mgr.Close()
 	cfg := &config.Config{Host: "h", Port: "5432", User: "postgres", AdminDB: "postgres",
 		RefreshSeconds: 5, Version: "v0.1.0"}
-	m := New(cfg, mgr)
+	m := newConnected(cfg, mgr)
 	var tm tea.Model = m
 	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
@@ -716,7 +716,7 @@ func TestUpdatePrompt(t *testing.T) {
 	assertContains(t, tm.View(), "Dashboard")
 
 	// An equal (or older) release must not prompt.
-	m2 := New(cfg, mgr)
+	m2 := newConnected(cfg, mgr)
 	var tm2 tea.Model = m2
 	tm2, _ = tm2.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	tm2, _ = tm2.Update(updateCheckedMsg{latest: "v0.1.0"})
@@ -731,7 +731,7 @@ func TestQuitConfirm(t *testing.T) {
 	mgr := testManager(t)
 	defer mgr.Close()
 	cfg := &config.Config{Host: "h", Port: "5432", User: "postgres", AdminDB: "postgres", RefreshSeconds: 5}
-	m := New(cfg, mgr)
+	m := newConnected(cfg, mgr)
 	var tm tea.Model = m
 	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
@@ -759,7 +759,7 @@ func TestQuitConfirm(t *testing.T) {
 	}
 
 	// ctrl+c hard-quits without a prompt.
-	m2 := New(cfg, mgr)
+	m2 := newConnected(cfg, mgr)
 	var tm2 tea.Model = m2
 	tm2, _ = tm2.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	tm2, _ = tm2.Update(tea.KeyMsg{Type: tea.KeyCtrlC})

@@ -1,6 +1,10 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Adaptive palette (works in light and dark terminals).
 var (
@@ -44,6 +48,9 @@ var (
 
 	stBrand = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
 
+	// stServer renders the active connection's name in the header.
+	stServer = lipgloss.NewStyle().Foreground(colFg).Bold(true)
+
 	// stHeaderVer renders the running version as a readable badge so it is
 	// always legible in the header (and reused in the About overlay).
 	stHeaderVer = lipgloss.NewStyle().Foreground(colOnDark).Background(colMuted).Bold(true).Padding(0, 1)
@@ -55,4 +62,24 @@ const brand = "9level.dev"
 // hint renders "key label" for the shortcut footer.
 func hint(k, label string) string {
 	return stKey.Render(k) + " " + stKeyHint.Render(label)
+}
+
+// tagBadge renders a connection tag. prod is loud on purpose: it is the one
+// place a wrong keystroke hurts.
+func tagBadge(tag string) string {
+	var bg lipgloss.TerminalColor
+	switch tag {
+	case "prod":
+		bg = colDanger
+	case "staging":
+		bg = colWarn
+	case "dev":
+		bg = colSuccess
+	case "env":
+		bg = colMuted
+	default:
+		return ""
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(colOnDark).Background(bg).
+		Padding(0, 1).Render(strings.ToUpper(tag))
 }
