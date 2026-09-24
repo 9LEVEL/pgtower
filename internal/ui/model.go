@@ -464,7 +464,7 @@ func (m *Model) View() string {
 
 func (m *Model) renderBody() string {
 	if m.sess != nil {
-		return m.sess.tabs[m.active].View()
+		return fitHeight(m.sess.tabs[m.active].View(), m.bodyHeight())
 	}
 	msg := stLabel.Render("Not connected. Press ") + stKey.Render("S") + stLabel.Render(" to choose a server.")
 	if m.connecting != "" {
@@ -472,6 +472,20 @@ func (m *Model) renderBody() string {
 			stLabel.Render("…   ") + stKeyHint.Render("esc cancel")
 	}
 	return lipgloss.Place(m.width, m.bodyHeight(), lipgloss.Center, lipgloss.Center, msg)
+}
+
+// fitHeight pins a tab body to exactly h lines. A taller body would scroll the
+// header and tab bar off the screen; a shorter one would leave the footer
+// floating mid-screen.
+func fitHeight(s string, h int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > h {
+		lines = lines[:h]
+	}
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // bodyHeight computes the available height for the tab body.
@@ -500,7 +514,7 @@ func (m *Model) renderHeader() string {
 	case m.sess != nil:
 		c := m.sess.cfg
 		conn = tagBadge(c.Tag) + stServer.Render(" "+c.Name+" ") +
-			stStatus.Render(fmt.Sprintf(" %s@%s:%s • admin db: %s ", c.User, c.Host, c.Port, m.sess.mgr.AdminDB()))
+			stStatus.Render(fmt.Sprintf(" %s@%s:%s • admin db: %s ", c.User, c.Host, c.Port, c.AdminDB))
 	default:
 		conn = stStatus.Render(" not connected ")
 	}
