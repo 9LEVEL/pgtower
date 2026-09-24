@@ -43,7 +43,7 @@ func (m *Model) handleUpdateChoice(idx int) tea.Cmd {
 	case 0: // Update now
 		m.updating = true
 		m.status = ""
-		return doSelfUpdateCmd(m.cfg.Version, m.updateLatest)
+		return doSelfUpdateCmd(m.version, m.updateLatest)
 	case 2: // Never suggest again
 		return optOutUpdatesCmd()
 	}
