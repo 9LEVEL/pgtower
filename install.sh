@@ -156,17 +156,24 @@ if [ "$CONFIG_DIR" = "/opt/pgtower" ] && [ -d "$LEGACY_CONFIG_DIR" ] && [ ! -e "
 	fi
 fi
 say "Ensuring config directory $CONFIG_DIR…"
-CSUDO=
+# pgtower runs as you, not root, and saves config.yml atomically (temp file +
+# rename inside this directory): a directory created with sudo is handed to you.
+ME="$(id -u):$(id -g)"
 if mkdir -p "$CONFIG_DIR" 2>/dev/null && [ -w "$CONFIG_DIR" ]; then
 	:
-elif command -v sudo >/dev/null 2>&1; then
-	CSUDO=sudo
-	$CSUDO mkdir -p "$CONFIG_DIR" 2>/dev/null || warn "could not create $CONFIG_DIR"
-else
+elif [ ! -e "$CONFIG_DIR" ] && command -v sudo >/dev/null 2>&1; then
+	warn "$(dirname "$CONFIG_DIR") needs root — using sudo, then handing $CONFIG_DIR to $(id -un)"
+	{ sudo mkdir -p "$CONFIG_DIR" && sudo chown "$ME" "$CONFIG_DIR"; } 2>/dev/null ||
+		warn "could not create $CONFIG_DIR"
+elif [ ! -e "$CONFIG_DIR" ]; then
 	warn "cannot create $CONFIG_DIR (no write access and no sudo)"
 fi
 
-if [ -d "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ] && [ ! -f "$CONFIG_DIR/.env" ] && [ ! -d "$LEGACY_CONFIG_DIR" ]; then
+if [ -f "$CONFIG_FILE" ] && [ ! -r "$CONFIG_FILE" ]; then
+	warn "$CONFIG_FILE is not readable by $(id -un), so pgtower cannot start. Fix:  sudo chown $ME $CONFIG_DIR $CONFIG_FILE"
+elif [ -d "$CONFIG_DIR" ] && [ ! -w "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ] && [ ! -f "$CONFIG_DIR/.env" ] && [ ! -d "$LEGACY_CONFIG_DIR" ]; then
+	warn "$CONFIG_DIR is not writable by $(id -un) — skipping the starter config. Fix:  sudo chown $ME $CONFIG_DIR"
+elif [ -d "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ] && [ ! -f "$CONFIG_DIR/.env" ] && [ ! -d "$LEGACY_CONFIG_DIR" ]; then
 	tmpl=$(mktemp)
 	cat > "$tmpl" <<'YML'
 # pgtower configuration — https://github.com/9level/pgtower
@@ -179,11 +186,7 @@ if [ -d "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ] && [ ! -f "$CONFIG_DIR/.env" 
 version: 2
 connections: []
 YML
-	if [ -n "$CSUDO" ]; then
-		$CSUDO install -m 0600 "$tmpl" "$CONFIG_FILE" 2>/dev/null
-	else
-		install -m 0600 "$tmpl" "$CONFIG_FILE" 2>/dev/null
-	fi
+	install -m 0600 "$tmpl" "$CONFIG_FILE" 2>/dev/null
 	rm -f "$tmpl"
 	[ -f "$CONFIG_FILE" ] && ok "Starter config written: $CONFIG_FILE"
 elif [ -f "$CONFIG_FILE" ] && ! grep -q '^version:' "$CONFIG_FILE" 2>/dev/null; then
