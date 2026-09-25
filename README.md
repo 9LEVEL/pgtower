@@ -62,8 +62,8 @@ superuser (see [Permissions](#permissions)).
 |-----|--------------|
 | **Servers** (`S`) | Connection manager: list, **switch**, add / edit / delete, `t` **test** (latency + server version), `*` set the default. Tag servers `dev` / `staging` / `prod` (prod gets a red header badge). Connection failures are explained — *not responding*, *refused*, *no route*, *auth failed*, *pg_hba rejected*, *TLS* … — with what to check next, instead of a raw driver error. |
 | **1 · Dashboard** | Cluster health: connections vs `max_connections` (with reserved slots), cache hit ratio, uptime, total size, commits/rollbacks, version, longest active query, replication. A **connection advisor** flags near-limit/idle-dominated/idle-in-transaction situations and tells you what to do. Auto-refresh. |
-| **2 · Databases** | Databases (owner, size, connections) → tables → **read-only data browser** (horizontal column scroll `←→`, per-column search `/`, top query bar `e`). Create (`n`) / drop (`D`) databases, `d` for a table's structure (columns, indexes, constraints), and `/` for a **fuzzy quick-find** in the database/table list. |
-| **3 · Query** | SQL editor with a paged result grid. `x` runs **EXPLAIN** (plan only). Writes require confirmation; destructive statements (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` without `WHERE`) require typing `yes`. |
+| **2 · Databases** | Databases (owner, size, connections) → tables → **read-only data browser** (horizontal column scroll `←→`, `y` / `Y` copy the cell / row, per-column search `/`, top query bar `e`). Create (`n`) / drop (`D`) databases, `d` for a table's structure (columns, indexes, constraints), and `/` for a **fuzzy quick-find** in the database/table list. |
+| **3 · Query** | SQL editor with a paged result grid (horizontal column scroll `←→`, `y` / `Y` copy the cell / row). `x` runs **EXPLAIN** (plan only). Writes require confirmation; destructive statements (`DROP`/`TRUNCATE`/`DELETE`/`UPDATE` without `WHERE`) require typing `yes`. |
 | **4 · Locks** | Blocking tree: which session waits on which. |
 | **5 · Sessions** | `pg_stat_activity` with state/wait/duration/query. `c` cancels the query, `k` terminates the connection, `/` **fuzzy quick-find** (by PID, user, database, state or query text). |
 | **6 · Roles** | Roles with their attributes and connection limit (`CONN`, ∞ = unlimited). `SUPER` and `BYPASSRLS` are marked `⚠ yes` — both ignore row-level security. `enter` **manage** the selected role (reset password — random 32-char, shown once; set the connection limit; **edit attributes**: LOGIN, CREATEDB, CREATEROLE, SUPERUSER, REPLICATION, BYPASSRLS; or **show access** — a per-database report of what the role owns and is granted, schema/table privileges included). `n` create, `g` grant / `R` revoke (pick the database in a fuzzy finder, then the privilege, then **confirm the exact SQL**), `D` drop, `F` **force-drop** (reassign ownership to a successor, then drop — no data loss), `/` **fuzzy quick-find** by name. |
@@ -240,6 +240,10 @@ longer plan to downgrade.
 
 Press `?` in the app for the full, scrollable list.
 
+Copying (`y` / `Y`) uses the system clipboard (`pbcopy`, `wl-copy`, `xclip` or
+`xsel`). Without one — typically over SSH — it asks the terminal through OSC 52,
+which most modern terminals support (inside tmux: `set -g set-clipboard on`).
+
 | Key | Action |
 |-----|--------|
 | `1`–`7` | switch tab |
@@ -254,6 +258,7 @@ Press `?` in the app for the full, scrollable list.
 | `n` / `D` | create / drop database (drop asks for the name) |
 | **Table data** | |
 | `←`/`→` `h`/`l` | move between columns (horizontal scroll) |
+| `y` / `Y` | copy the active cell / the whole row (tab-separated) |
 | `/` | search the active column (`ILIKE '%term%'`) |
 | `e` | edit the top query bar (read-only) |
 | **Query** | |
@@ -261,6 +266,8 @@ Press `?` in the app for the full, scrollable list.
 | `/` or `ctrl+t` | switch the target database (filterable list) |
 | `x` | EXPLAIN (plan, without executing) |
 | `ctrl+r` / `f5` | run |
+| `←`/`→` `h`/`l` | move between result columns (horizontal scroll) |
+| `y` / `Y` | copy the active cell / the whole row (tab-separated) |
 | **Sessions** | |
 | `/` | fuzzy quick-find (PID, user, database, state, query) |
 | `c` | cancel the session's query (`pg_cancel_backend`) |
