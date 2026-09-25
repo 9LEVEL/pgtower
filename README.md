@@ -74,7 +74,7 @@ superuser (see [Permissions](#permissions)).
 ### One line (Linux / macOS)
 
 ```bash
-curl -fsSL https://pgtower.dev | sh
+curl -fsSL https://pgtower.dev/install | sh
 ```
 
 The same script straight from GitHub, if you prefer:
@@ -142,7 +142,7 @@ Don't want the prompt at all? Just re-run the installer — it always grabs the
 `config.yml` is left untouched):
 
 ```bash
-curl -fsSL https://pgtower.dev | sh
+curl -fsSL https://pgtower.dev/install | sh
 ```
 
 Pin a version with `PGTOWER_VERSION=vX.Y.Z`. Installed from source instead?
