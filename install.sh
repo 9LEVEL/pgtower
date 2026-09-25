@@ -169,10 +169,13 @@ elif [ ! -e "$CONFIG_DIR" ]; then
 	warn "cannot create $CONFIG_DIR (no write access and no sudo)"
 fi
 
+CONFIG_FIX=
 if [ -f "$CONFIG_FILE" ] && [ ! -r "$CONFIG_FILE" ]; then
-	warn "$CONFIG_FILE is not readable by $(id -un), so pgtower cannot start. Fix:  sudo chown $ME $CONFIG_DIR $CONFIG_FILE"
+	CONFIG_FIX="sudo chown $ME $CONFIG_DIR $CONFIG_FILE"
+	warn "$CONFIG_FILE is not readable by $(id -un), so pgtower cannot start. Fix:  $CONFIG_FIX"
 elif [ -d "$CONFIG_DIR" ] && [ ! -w "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ] && [ ! -f "$CONFIG_DIR/.env" ] && [ ! -d "$LEGACY_CONFIG_DIR" ]; then
-	warn "$CONFIG_DIR is not writable by $(id -un) — skipping the starter config. Fix:  sudo chown $ME $CONFIG_DIR"
+	CONFIG_FIX="sudo chown $ME $CONFIG_DIR"
+	warn "$CONFIG_DIR is not writable by $(id -un) — skipping the starter config. Fix:  $CONFIG_FIX"
 elif [ -d "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ] && [ ! -f "$CONFIG_DIR/.env" ] && [ ! -d "$LEGACY_CONFIG_DIR" ]; then
 	tmpl=$(mktemp)
 	cat > "$tmpl" <<'YML'
@@ -197,5 +200,9 @@ elif [ -f "$CONFIG_FILE" ]; then
 	ok "Config already present: $CONFIG_FILE (left untouched)"
 fi
 
-printf '\n%s Ready. Run %s and press %s to add your servers.\n' "${G}✓${N}" "${B}pgtower${N}" "${B}S${N}" >&2
+if [ -n "$CONFIG_FIX" ]; then
+	printf '\n%s Installed, but not ready yet: run  %s  then %s and press %s to add your servers.\n' "${Y}!${N}" "${B}$CONFIG_FIX${N}" "${B}pgtower${N}" "${B}S${N}" >&2
+else
+	printf '\n%s Ready. Run %s and press %s to add your servers.\n' "${G}✓${N}" "${B}pgtower${N}" "${B}S${N}" >&2
+fi
 printf '  One-off without saving anything:  DATABASE_URL=%s pgtower\n' "'postgres://user:pass@host:5432/postgres'" >&2
