@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -22,22 +21,16 @@ const (
 )
 
 // dataBrowser displays a table's data in read-only mode, with horizontal
-// column scrolling (←→), search on the active column ('/') and a query bar at
-// the top for custom queries (read-only).
+// column scrolling (←→), copy (y / Y), search on the active column ('/') and a
+// query bar at the top for custom queries (read-only).
 type dataBrowser struct {
 	mgr *db.Manager
 
 	dbname, schema, table string
 
-	grid     table.Model
-	allCols  []string
-	allRows  [][]string
-	widths   []int
+	grid     resultGrid
 	rowCount int
 	trunc    bool
-
-	colCursor int // active column (absolute index)
-	colOffset int // first visible column (horizontal scroll)
 
 	search   textinput.Model
 	queryBar textinput.Model
@@ -65,7 +58,7 @@ func newDataBrowser(mgr *db.Manager) *dataBrowser {
 
 	return &dataBrowser{
 		mgr:      mgr,
-		grid:     newTable(),
+		grid:     newResultGrid(40),
 		search:   s,
 		queryBar: q,
 	}
@@ -82,11 +75,9 @@ func (b *dataBrowser) SetSize(w, h int) {
 		gh = 3
 	}
 	b.grid.SetHeight(gh)
+	b.grid.SetWidth(w)
 	b.search.Width = clampInt(w-24, 10, 60)
 	b.queryBar.Width = clampInt(w-8, 20, 160)
-	if len(b.allCols) > 0 {
-		b.buildGrid()
-	}
 }
 
 // Open starts the browser on a table and triggers loading the SELECT *.
@@ -96,7 +87,7 @@ func (b *dataBrowser) Open(dbname, schema, tbl string) tea.Cmd {
 	b.loading = true
 	b.err = nil
 	b.status = ""
-	b.colCursor, b.colOffset = 0, 0
+	b.grid.resetColumns()
 	b.baseSQL = "SELECT * FROM " + db.QuoteQualified(schema, tbl) + " LIMIT 1000"
 	b.currentSQL = b.baseSQL
 	b.grid.Focus()
@@ -120,16 +111,9 @@ func (b *dataBrowser) Update(msg tea.Msg) tea.Cmd {
 		b.loading = false
 		b.err = msg.err
 		if msg.err == nil {
-			sameShape := len(msg.res.Columns) == len(b.allCols)
-			b.allCols = msg.res.Columns
-			b.allRows = msg.res.Rows
+			b.grid.SetData(msg.res)
 			b.rowCount = msg.res.RowCount
 			b.trunc = msg.res.Truncated
-			if !sameShape {
-				b.colCursor, b.colOffset = 0, 0
-			}
-			b.computeWidths()
-			b.buildGrid()
 			note := ""
 			if b.trunc {
 				note = " (limited to 1000)"
@@ -153,20 +137,8 @@ func (b *dataBrowser) handleKey(msg tea.KeyMsg) tea.Cmd {
 	}
 
 	switch msg.String() {
-	case "left", "h":
-		if b.colCursor > 0 {
-			b.colCursor--
-			b.buildGrid()
-		}
-		return nil
-	case "right", "l":
-		if b.colCursor < len(b.allCols)-1 {
-			b.colCursor++
-			b.buildGrid()
-		}
-		return nil
 	case "/":
-		if len(b.allCols) == 0 {
+		if len(b.grid.cols) == 0 {
 			return nil
 		}
 		b.mode = dataSearch
@@ -178,12 +150,10 @@ func (b *dataBrowser) handleKey(msg tea.KeyMsg) tea.Cmd {
 		b.queryBar.CursorEnd()
 		return b.queryBar.Focus()
 	case "r":
-		b.colCursor, b.colOffset = 0, 0
+		b.grid.resetColumns()
 		return b.run(b.baseSQL)
 	}
-	var cmd tea.Cmd
-	b.grid, cmd = b.grid.Update(msg)
-	return cmd
+	return b.grid.Update(msg)
 }
 
 func (b *dataBrowser) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
@@ -199,7 +169,7 @@ func (b *dataBrowser) handleSearchKey(msg tea.KeyMsg) tea.Cmd {
 		if term == "" {
 			return b.run(b.baseSQL)
 		}
-		col := b.allCols[b.colCursor]
+		col, _ := b.grid.column()
 		sql := "SELECT * FROM " + db.QuoteQualified(b.schema, b.table) +
 			" WHERE " + db.QuoteIdent(col) + "::text ILIKE " + db.QuoteLiteral("%"+term+"%") +
 			" LIMIT 1000"
@@ -235,103 +205,7 @@ func (b *dataBrowser) handleQueryKey(msg tea.KeyMsg) tea.Cmd {
 	return cmd
 }
 
-// --- layout / render ---
-
-func (b *dataBrowser) computeWidths() {
-	b.widths = make([]int, len(b.allCols))
-	for i, c := range b.allCols {
-		b.widths[i] = len([]rune(c)) + 1
-	}
-	for _, row := range b.allRows {
-		for i, cell := range row {
-			if i < len(b.widths) {
-				if l := len([]rune(cell)) + 1; l > b.widths[i] {
-					b.widths[i] = l
-				}
-			}
-		}
-	}
-	for i := range b.widths {
-		b.widths[i] = clampInt(b.widths[i], 3, 40)
-	}
-}
-
-func (b *dataBrowser) avail() int {
-	a := b.width - 2
-	if a < 20 {
-		a = 20
-	}
-	return a
-}
-
-// ensureVisible adjusts colOffset so the active column stays visible.
-func (b *dataBrowser) ensureVisible() {
-	if b.colCursor < b.colOffset {
-		b.colOffset = b.colCursor
-		return
-	}
-	for b.colOffset < len(b.allCols)-1 {
-		w, last := 0, b.colOffset
-		for i := b.colOffset; i < len(b.allCols); i++ {
-			if w+b.widths[i]+1 > b.avail() && i > b.colOffset {
-				break
-			}
-			last = i
-			w += b.widths[i] + 1
-		}
-		if b.colCursor <= last {
-			break
-		}
-		b.colOffset++
-	}
-}
-
-// buildGrid slices the horizontal column window and feeds the grid.
-func (b *dataBrowser) buildGrid() {
-	if len(b.allCols) == 0 {
-		b.grid.SetRows(nil)
-		b.grid.SetColumns([]table.Column{{Title: "", Width: 10}})
-		return
-	}
-	b.ensureVisible()
-
-	var cols []table.Column
-	var idxs []int
-	w := 0
-	for i := b.colOffset; i < len(b.allCols); i++ {
-		if w+b.widths[i]+1 > b.avail() && len(idxs) > 0 {
-			break
-		}
-		title := b.allCols[i]
-		if i == b.colCursor {
-			title = "›" + title // mark the active column
-		}
-		cols = append(cols, table.Column{Title: strings.ToUpper(title), Width: b.widths[i]})
-		idxs = append(idxs, i)
-		w += b.widths[i] + 1
-	}
-
-	cur := b.grid.Cursor()
-	rows := make([]table.Row, len(b.allRows))
-	for r, full := range b.allRows {
-		cells := make([]string, len(idxs))
-		for j, ci := range idxs {
-			if ci < len(full) {
-				cells[j] = full[ci]
-			}
-		}
-		rows[r] = table.Row(cells)
-	}
-	// Order matters: the bubbles table renders on each setter. Clearing the rows
-	// before swapping the columns avoids an intermediate render with a cell
-	// count ≠ column count (index out of range in renderRow).
-	b.grid.SetRows(nil)
-	b.grid.SetColumns(cols)
-	b.grid.SetRows(rows)
-	if cur >= 0 && cur < len(rows) {
-		b.grid.SetCursor(cur)
-	}
-}
+// --- render ---
 
 func (b *dataBrowser) FooterHints() string {
 	switch b.mode {
@@ -340,7 +214,7 @@ func (b *dataBrowser) FooterHints() string {
 	case dataQuery:
 		return hint("enter", "run (read-only)") + "   " + hint("esc", "cancel")
 	default:
-		return hint("esc", "back") + "  " + hint("←→", "columns") + "  " +
+		return hint("esc", "back") + "  " + hint("←→", "columns") + "  " + hint("y/Y", "copy cell/row") + "  " +
 			hint("/", "search column") + "  " + hint("e", "query") + "  " + hint("r", "reset")
 	}
 }
@@ -366,23 +240,19 @@ func (b *dataBrowser) View() string {
 		meta = stLabel.Render("  loading…")
 	default:
 		colInfo := ""
-		if len(b.allCols) > 0 {
-			colInfo = fmt.Sprintf("  ·  column %d/%d: %s",
-				b.colCursor+1, len(b.allCols), b.allCols[b.colCursor])
+		if info := b.grid.colInfo(); info != "" {
+			colInfo = "  ·  " + info
 		}
 		meta = stLabel.Render("  "+b.status) + stKeyHint.Render(colInfo)
 	}
 
 	body := b.grid.View()
 	if b.mode == dataSearch {
-		col := ""
-		if len(b.allCols) > 0 {
-			col = b.allCols[b.colCursor]
-		}
+		col, _ := b.grid.column()
 		searchLine := stKey.Render("search in "+col+": ") + b.search.View()
 		return bar + "\n" + loc + meta + "\n" + searchLine + "\n" + body
 	}
-	if b.err == nil && len(b.allRows) == 0 && !b.loading {
+	if b.err == nil && len(b.grid.rows) == 0 && !b.loading {
 		body = "\n  " + stStatus.Render("(0 rows)")
 	}
 	return bar + "\n" + loc + meta + "\n" + body

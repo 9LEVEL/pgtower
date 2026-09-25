@@ -72,8 +72,9 @@ internal/update         GitHub release check + in-place self-update
 
 Each tab implements the `tabView` interface in `internal/ui/model.go`. Reusable
 pieces live in `confirm.go` (confirmation modal), `form.go` (text/select
-forms), `alert.go` (scrollable message box), `menu.go` (action menu) and
-`finder.go` (fuzzy quick-find overlay).
+forms), `alert.go` (scrollable message box), `menu.go` (action menu),
+`finder.go` (fuzzy quick-find overlay) and `grid.go` (result grid with column
+scrolling and cell/row copy, used by the data browser and the Query tab).
 
 ## Releasing
 

@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -250,9 +251,10 @@ func ListBlocks(ctx context.Context, p Pinger) ([]BlockPair, error) {
 // QueryResult carries the result of an ad-hoc query.
 type QueryResult struct {
 	Columns   []string
-	Rows      [][]string
-	Command   string // command tag (e.g. "UPDATE 3") for statements without a result
-	RowCount  int    // rows returned (SELECT) or affected
+	Rows      [][]string // display text: one line per cell, NULL as ∅, bytea abbreviated
+	Raw       [][]string // full text of each cell (for copying), NULL as ""
+	Command   string     // command tag (e.g. "UPDATE 3") for statements without a result
+	RowCount  int        // rows returned (SELECT) or affected
 	Elapsed   time.Duration
 	Truncated bool
 }
@@ -287,6 +289,7 @@ func RunQuery(ctx context.Context, p Pinger, sql string) (QueryResult, error) {
 			return res, err
 		}
 		res.Rows = append(res.Rows, formatRow(vals))
+		res.Raw = append(res.Raw, rawRow(vals))
 	}
 	if err := rows.Err(); err != nil {
 		return res, err
@@ -319,12 +322,32 @@ func formatValue(v any) string {
 		return "∅" // NULL
 	case []byte:
 		return "\\x" + hexPreview(t)
+	default:
+		return collapse(rawValue(v))
+	}
+}
+
+func rawRow(vals []any) []string {
+	out := make([]string, len(vals))
+	for i, v := range vals {
+		out[i] = rawValue(v)
+	}
+	return out
+}
+
+// rawValue is the untrimmed text of a value: line breaks kept, bytea in full.
+func rawValue(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case []byte:
+		return "\\x" + hex.EncodeToString(t)
 	case time.Time:
 		return t.Format("2006-01-02 15:04:05")
 	case string:
-		return collapse(t)
+		return t
 	default:
-		return collapse(fmt.Sprint(v))
+		return fmt.Sprint(v)
 	}
 }
 
