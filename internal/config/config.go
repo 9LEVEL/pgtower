@@ -10,15 +10,13 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 )
-
-// DefaultConfigDir is where the installer creates config.yml and where pgtower
-// looks for it when no more specific location has one.
-const DefaultConfigDir = "/opt/pgtower"
 
 // FileVersion is the config.yml format written by this build.
 const FileVersion = 2
@@ -82,6 +80,10 @@ type Store struct {
 
 	// Migration is set when Load upgraded a legacy config during this run.
 	Migration *Migration
+
+	// Skipped lists config files the search passed over because this user may
+	// not read them (typically another user's 0600 file).
+	Skipped []string
 }
 
 // Config is the resolved, flat configuration of the active connection. The UI
@@ -143,15 +145,18 @@ type fileV2 struct {
 // asks for a first connection.
 func Load() (*Store, error) {
 	s := &Store{}
-	var moved []string
-	var moveErr error
-	if Env("CONFIG") == "" && Env("CONFIG_DIR") == "" {
+	var moved, relocated []string
+	var moveErr, relocateErr error
+	explicit := Env("CONFIG") != "" || Env("CONFIG_DIR") != ""
+	if !explicit {
 		moved, moveErr = relocateLegacyDirs()
+		relocated, relocateErr = relocateDirs(platformDirPairs(), ".old")
 	}
-	path, raw, err := findConfigFile()
+	path, raw, skipped, err := findConfigFile()
 	if err != nil {
 		return nil, err
 	}
+	s.Skipped = skipped
 	if path != "" {
 		s.Path = path
 		fc, mig, err := parseAndMigrate(path, raw)
@@ -164,6 +169,16 @@ func Load() (*Store, error) {
 		// No config.yml at all, but a pre-v0.8 .env may still hold the
 		// connection that an upgraded install silently lost.
 		s.Migration = s.importLegacyDotenv()
+	}
+	if !explicit && s.Path != "" {
+		s.relocateConfig()
+	}
+	if len(relocated) > 0 || relocateErr != nil {
+		if s.Migration == nil {
+			s.Migration = &Migration{Path: s.Path}
+		}
+		s.Migration.Relocated = append(relocated, s.Migration.Relocated...)
+		s.Migration.RelocateErr = errors.Join(relocateErr, s.Migration.RelocateErr)
 	}
 
 	if len(moved) > 0 || moveErr != nil {
@@ -332,7 +347,10 @@ func (c Connection) DSN() (string, error) {
 	if port == 0 {
 		port = 5432
 	}
-	user := orDefault(c.User, "postgres")
+	user := strings.TrimSpace(c.User)
+	if user == "" {
+		user = DefaultUser(host)
+	}
 	userinfo := url.User(user)
 	if pw := c.password(); pw != "" {
 		userinfo = url.UserPassword(user, pw)
@@ -348,6 +366,18 @@ func (c Connection) DSN() (string, error) {
 	q.Set("sslmode", orDefault(c.SSLMode, "disable"))
 	u.RawQuery = q.Encode()
 	return u.String(), nil
+}
+
+// DefaultUser is the role used when a connection leaves the user empty: over
+// a unix socket the OS user, as psql does (the only role peer authentication
+// admits); over TCP "postgres".
+func DefaultUser(host string) string {
+	if strings.HasPrefix(strings.TrimSpace(host), "/") {
+		if u, err := user.Current(); err == nil && u.Username != "" {
+			return u.Username
+		}
+	}
+	return "postgres"
 }
 
 func (c Connection) password() string {
@@ -427,18 +457,35 @@ func (s *Store) Remove(name string) {
 	}
 }
 
-// findConfigFile returns the first config.yml found (path "" when none).
-func findConfigFile() (string, []byte, error) {
+// readConfig and configExists access candidate config files (variables so
+// tests can simulate permission errors, which root never gets).
+var (
+	readConfig   = os.ReadFile
+	configExists = func(p string) bool { _, err := os.Lstat(p); return err == nil }
+)
+
+// findConfigFile returns the first config.yml found (path "" when none). The
+// default search passes over what this user may not read: another user's 0600
+// config must not stop pgtower from starting. Such a file is listed in
+// skipped; a directory that cannot even be searched is passed over silently.
+// A file named by PGTOWER_CONFIG / PGTOWER_CONFIG_DIR must be readable.
+func findConfigFile() (path string, raw []byte, skipped []string, err error) {
+	explicit := Env("CONFIG") != "" || Env("CONFIG_DIR") != ""
 	for _, p := range configPaths() {
-		b, err := os.ReadFile(p)
-		if err == nil {
-			return p, b, nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return "", nil, fmt.Errorf("read %s: %w", p, err)
+		b, err := readConfig(p)
+		switch {
+		case err == nil:
+			return p, b, skipped, nil
+		case errors.Is(err, fs.ErrNotExist):
+		case errors.Is(err, fs.ErrPermission) && !explicit:
+			if configExists(p) {
+				skipped = append(skipped, p)
+			}
+		default:
+			return "", nil, nil, fmt.Errorf("read %s: %w", p, err)
 		}
 	}
-	return "", nil, nil
+	return "", nil, skipped, nil
 }
 
 // configPaths lists candidate config files, highest priority first.
@@ -464,22 +511,15 @@ func configDirs() []string {
 	if exe, err := os.Executable(); err == nil {
 		dirs = append(dirs, filepath.Dir(exe))
 	}
-	if d := userConfigDir(); d != "" {
+	if d := UserDir(); d != "" {
 		dirs = append(dirs, d)
 	}
-	dirs = append(dirs, DefaultConfigDir, "/etc/pgtower")
-	// pgtower-era directories that could not be moved are still read, last.
-	for _, p := range legacyDirPairs() {
+	dirs = append(dirs, systemDir, etcDir)
+	// Old directories that could not be moved are still read, last.
+	for _, p := range append(legacyDirPairs(), platformDirPairs()...) {
 		dirs = append(dirs, p[0])
 	}
 	return dirs
-}
-
-func userConfigDir() string {
-	if home, err := os.UserConfigDir(); err == nil {
-		return filepath.Join(home, "pgtower")
-	}
-	return ""
 }
 
 // connFromPGEnv builds the env connection from PGHOST/PGUSER/... .

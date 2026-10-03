@@ -34,6 +34,8 @@ func TestExplainConnectKinds(t *testing.T) {
 		{"socket missing", opErr(syscall.ENOENT), "/var/run/postgresql", ConnNoSocket, "systemctl status postgresql"},
 		{"bad password", &pgconn.PgError{Code: "28P01", Message: "password authentication failed"}, "h", ConnAuth, "credentials"},
 		{"pg_hba", &pgconn.PgError{Code: "28000", Message: "no pg_hba.conf entry"}, "h", ConnRejected, "pg_hba.conf"},
+		{"peer", &pgconn.PgError{Code: "28000", Message: `Peer authentication failed for user "postgres"`},
+			"/var/run/postgresql", ConnRejected, "sudo -u postgres pgtower"},
 		{"no db", &pgconn.PgError{Code: "3D000", Message: `database "x" does not exist`}, "h", ConnNoDatabase, "postgres"},
 		{"tls refused", errors.New("server refused TLS connection"), "h", ConnTLS, "sslmode"},
 		{"unknown", errors.New("boom"), "h", ConnOther, "technical details"},

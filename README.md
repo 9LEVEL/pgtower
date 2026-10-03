@@ -74,7 +74,7 @@ superuser (see [Permissions](#permissions)).
 ### One line (Linux / macOS)
 
 ```bash
-curl -fsSL https://pgtower.dev | sh
+curl -fsSL https://pgtower.dev/install | sh
 ```
 
 The same script straight from GitHub, if you prefer:
@@ -82,7 +82,8 @@ The same script straight from GitHub, if you prefer:
 
 It detects your OS/arch, downloads the latest **static** binary (verifying its
 SHA-256) and installs it to `/usr/local/bin` — **no compiler, no runtime
-dependencies**. The binary runs on any Linux distro (Debian, Ubuntu, Alpine, …)
+dependencies** — then sets up your `~/.config/pgtower/config.yml`. Run through
+`sudo`, it sets the config up for the user who ran `sudo`, not for root. The binary runs on any Linux distro (Debian, Ubuntu, Alpine, …)
 and macOS; only the CPU architecture matters:
 
 | | amd64 (x86_64) | arm64 (aarch64) |
@@ -91,7 +92,8 @@ and macOS; only the CPU architecture matters:
 | **macOS** | ✅ | ✅ |
 | **Windows** | build from source / WSL | — |
 
-Tweak the install: `PGTOWER_INSTALL_DIR="$HOME/.local/bin"` or `PGTOWER_VERSION=vX.Y.Z`.
+Tweak the install: `PGTOWER_INSTALL_DIR="$HOME/.local/bin"`, `PGTOWER_VERSION=vX.Y.Z`
+or `PGTOWER_CONFIG_DIR=/some/dir`.
 Prefer to read before you pipe to a shell? It's just [`install.sh`](install.sh).
 Prebuilt binaries are also attached to each
 [GitHub Release](https://github.com/9level/pgtower/releases).
@@ -109,6 +111,14 @@ make install        # -> /usr/local/bin/pgtower (sudo)
 
 ```bash
 pgtower        # first run: the Servers screen opens — press a to add a server
+```
+
+PostgreSQL on this machine? Press `l` instead: it finds the local unix socket and
+fills in a password-less **peer** login. Peer admits only the role named after
+the OS user running pgtower, so to manage as `postgres` start it as that user:
+
+```bash
+sudo -u postgres pgtower   # then press l
 ```
 
 Or, one-off without saving anything:
@@ -129,7 +139,7 @@ asks what to do:
   needs root (e.g. `/usr/local/bin`), it shows the exact command to finish.
   Restart pgtower afterwards.
 - **Not now** — dismiss for this run.
-- **Never suggest again** — stop asking for good (a marker in your config dir);
+- **Never suggest again** — stop asking for good (a marker in `~/.config/pgtower/`);
   re-enable with `update_check: true` in `config.yml`.
 
 Disable the check entirely with `update_check: false` (config.yml) or
@@ -142,7 +152,7 @@ Don't want the prompt at all? Just re-run the installer — it always grabs the
 `config.yml` is left untouched):
 
 ```bash
-curl -fsSL https://pgtower.dev | sh
+curl -fsSL https://pgtower.dev/install | sh
 ```
 
 Pin a version with `PGTOWER_VERSION=vX.Y.Z`. Installed from source instead?
@@ -152,13 +162,13 @@ Pin a version with `PGTOWER_VERSION=vX.Y.Z`. Installed from source instead?
 
 pgtower keeps its servers and settings in **`config.yml`**, which it **manages
 itself**: the Servers screen (`S`) adds, edits and removes servers and saves
-them there (mode `0600`, since it may hold passwords). The installer creates
-`/opt/pgtower/config.yml`; pgtower also looks next to the binary, in
-`~/.config/pgtower/` and in the working directory (full reference:
-[`config.yml.example`](config.yml.example)).
+them there (mode `0600`, since it may hold passwords). The file belongs to the
+user who runs pgtower and lives in **`~/.config/pgtower/config.yml`**
+(`$XDG_CONFIG_HOME/pgtower` when that is set, on macOS too), which is where
+pgtower always saves it. Full reference: [`config.yml.example`](config.yml.example).
 
 ```yaml
-# /opt/pgtower/config.yml
+# ~/.config/pgtower/config.yml
 version: 2
 default: prod                   # opened at startup (pgtower -s NAME picks another)
 connections:
@@ -187,13 +197,23 @@ pgtower -s local        # open a specific one
   `config.yml`. `PGTOWER_*` variables override the settings.
 - **Passwords** can stay out of the file: leave the field empty and use
   `~/.pgpass`, or set `password_env: SOME_VAR` on the server.
+- **Local socket / peer**: set `host` to the socket directory
+  (`/var/run/postgresql`, or `/tmp` for source and Homebrew builds), not
+  `localhost` (that is TCP and usually wants a password). With `user` empty,
+  a socket connection logs in as the OS user, like `psql`; over TCP it stays
+  `postgres`. `l` on the Servers screen fills all of this in.
 - The **admin db** (the database in the URL, `postgres` by default) is where
   cluster-level queries run (`pg_stat_activity`, `pg_database`, replication,
   locks). pgtower opens additional connections on demand when you browse another
   database or run a query against a different target (switch it with `/`).
-- Search locations: `PGTOWER_CONFIG` (an explicit file) or `PGTOWER_CONFIG_DIR` (a
-  directory) **replace** the search; otherwise `./`, the binary's directory,
-  `~/.config/pgtower/`, `/opt/pgtower/`, `/etc/pgtower/` (first hit wins).
+- **Search order** (first hit wins): `./`, the binary's directory,
+  `~/.config/pgtower/`, then the system-wide `/opt/pgtower/` and
+  `/etc/pgtower/`. pgtower reads those two but never writes them: changes to a
+  config read from there are saved to your `~/.config/pgtower/config.yml`, which
+  takes precedence from then on. `PGTOWER_CONFIG` (an explicit file) or
+  `PGTOWER_CONFIG_DIR` (a directory) **replace** the search.
+- A file you may not read (another user's `0600` config) is skipped and listed
+  on the Servers screen; pgtower never saves over it.
 
 ### Coming from pgtui
 
@@ -203,14 +223,37 @@ only the name changed, and the upgrade handles it for you:
 
 | Before (pgtui) | Now (pgtower) | How it moves |
 |---|---|---|
-| `pgtui` command | `pgtower` | The in-app update or the installer renames the binary; `pgtui` stays as a **symlink** so scripts keep working (delete it whenever you like). |
-| `/opt/pgtui/`, `~/.config/pgtui/`, `/etc/pgtui/` | `/opt/pgtower/`, `~/.config/pgtower/`, `/etc/pgtower/` | Moved on first run; nothing is left behind. If a directory can't be moved (permissions), it is still read in place and pgtower tells you. |
+| `pgtui` command | `pgtower` | Re-run the installer (pgtui's own in-app update no longer reaches pgtower): it renames the binary and leaves `pgtui` as a **symlink** so scripts keep working (delete it whenever you like). |
+| `/opt/pgtui/`, `~/.config/pgtui/`, `/etc/pgtui/` | `/opt/pgtower/`, `~/.config/pgtower/`, `/etc/pgtower/` | Moved on first run; nothing is left behind (your own config then moves on to `~/.config/pgtower/`, see below). If a directory can't be moved (permissions), it is still read in place and pgtower tells you. |
 | `PGTUI_*` variables | `PGTOWER_*` | The old names are **still read** as a fallback; pgtower lists the ones you should rename. |
 | `application_name = 'pgtui'` | `'pgtower'` | Update any monitoring filter that relied on it. |
 | `github.com/9level/pgtui` | `github.com/9level/pgtower` | GitHub redirects the old URLs. |
 
 A one-time *Welcome to pgtower* notice summarises what was done on your
 machine.
+
+### Upgrading from v0.11 or older: config moves to `~/.config/pgtower`
+
+Up to v0.11 the installer put `config.yml` in `/opt/pgtower/` and pgtower saved
+it there. Now it belongs in your home directory, so on its first start pgtower
+**moves your config automatically**:
+
+- `/opt/pgtower/config.yml` moves to `~/.config/pgtower/config.yml` when it is
+  yours alone (owned by you, mode `0600`, which is how the installer and
+  pgtower wrote it). The original is kept as `config.yml.moved.bak`, and a
+  one-time notice says what was done. Delete the backup once you're happy,
+  since it may hold passwords.
+- On macOS, `~/Library/Application Support/pgtower/` moves to
+  `~/.config/pgtower/`.
+- A file owned by someone else, or readable by others, is treated as a
+  system-wide config: pgtower reads it, never moves or writes it, and saves
+  your changes to `~/.config/pgtower/config.yml`. If such a file actually holds
+  your own servers (e.g. left root-owned by an old `sudo` install), make it
+  yours and pgtower moves it on its next start:
+
+  ```bash
+  sudo chown "$USER" /opt/pgtower/config.yml && sudo chmod 600 /opt/pgtower/config.yml
+  ```
 
 ### Upgrading from v0.8 or older
 

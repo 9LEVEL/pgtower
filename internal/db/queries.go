@@ -2,12 +2,13 @@ package db
 
 import (
 	"context"
-	"encoding/hex"
-	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // ---------------------------------------------------------------------------
@@ -252,7 +253,7 @@ func ListBlocks(ctx context.Context, p Pinger) ([]BlockPair, error) {
 type QueryResult struct {
 	Columns   []string
 	Rows      [][]string // display text: one line per cell, NULL as ∅, bytea abbreviated
-	Raw       [][]string // full text of each cell (for copying), NULL as ""
+	Raw       [][]string // full text of each cell, for copying: "" for NULL (see maxCopyCell)
 	Command   string     // command tag (e.g. "UPDATE 3") for statements without a result
 	RowCount  int        // rows returned (SELECT) or affected
 	Elapsed   time.Duration
@@ -268,7 +269,11 @@ func RunQuery(ctx context.Context, p Pinger, sql string) (QueryResult, error) {
 	start := time.Now()
 	var res QueryResult
 
-	rows, err := p.Query(ctx, sql)
+	// Every column comes back in text format: a cell shows what PostgreSQL
+	// itself prints (uuid, numeric, json, interval, arrays, timestamps with
+	// their zone…), as psql does, not a Go rendering of the decoded value.
+	// Still the extended protocol, so one statement per query.
+	rows, err := p.Query(ctx, sql, pgx.QueryResultFormats{pgx.TextFormatCode})
 	if err != nil {
 		return res, err
 	}
@@ -284,12 +289,9 @@ func RunQuery(ctx context.Context, p Pinger, sql string) (QueryResult, error) {
 			res.Truncated = true
 			break
 		}
-		vals, err := rows.Values()
-		if err != nil {
-			return res, err
-		}
-		res.Rows = append(res.Rows, formatRow(vals))
-		res.Raw = append(res.Raw, rawRow(vals))
+		disp, full := formatRow(fields, rows.RawValues())
+		res.Rows = append(res.Rows, disp)
+		res.Raw = append(res.Raw, full)
 	}
 	if err := rows.Err(); err != nil {
 		return res, err
@@ -308,68 +310,68 @@ func RunQuery(ctx context.Context, p Pinger, sql string) (QueryResult, error) {
 	return res, nil
 }
 
-func formatRow(vals []any) []string {
-	out := make([]string, len(vals))
+// formatRow returns each cell's display text and its full text for copying.
+func formatRow(fields []pgconn.FieldDescription, vals [][]byte) (disp, full []string) {
+	disp, full = make([]string, len(vals)), make([]string, len(vals))
 	for i, v := range vals {
-		out[i] = formatValue(v)
+		disp[i], full[i] = cellText(v, fields[i].DataTypeOID)
 	}
-	return out
+	return disp, full
 }
 
-func formatValue(v any) string {
-	switch t := v.(type) {
-	case nil:
-		return "∅" // NULL
-	case []byte:
-		return "\\x" + hexPreview(t)
-	default:
-		return collapse(rawValue(v))
+// byteaPreview is how much of a bytea's text ("\\x" + hex) a cell shows: the
+// first 16 bytes.
+const byteaPreview = 2 + 16*2
+
+// maxCopyCell caps the full text kept for copying a cell that displays
+// something shorter (an abbreviated bytea, collapsed line breaks): a bigger
+// one is not kept, so a result full of large values does not hold them twice.
+// Any other cell's full text is its display string, at no extra cost.
+const maxCopyCell = 64 << 10
+
+// cellText renders a text-format value: disp for a one-line grid cell (NULL
+// as ∅, bytea abbreviated), full as PostgreSQL printed it, for copying ("" for
+// NULL or over maxCopyCell).
+func cellText(v []byte, oid uint32) (disp, full string) {
+	if v == nil {
+		return "∅", "" // NULL
 	}
+	full = string(v)
+	if oid == pgtype.ByteaOID && len(full) > byteaPreview {
+		disp = full[:byteaPreview] + "…"
+	} else {
+		disp = collapse(full)
+	}
+	if disp != full && len(full) > maxCopyCell {
+		full = ""
+	}
+	return disp, full
 }
 
-func rawRow(vals []any) []string {
-	out := make([]string, len(vals))
-	for i, v := range vals {
-		out[i] = rawValue(v)
-	}
-	return out
+// formatValue is cellText's display text.
+func formatValue(v []byte, oid uint32) string {
+	disp, _ := cellText(v, oid)
+	return disp
 }
 
-// rawValue is the untrimmed text of a value: line breaks kept, bytea in full.
-func rawValue(v any) string {
-	switch t := v.(type) {
-	case nil:
-		return ""
-	case []byte:
-		return "\\x" + hex.EncodeToString(t)
-	case time.Time:
-		return t.Format("2006-01-02 15:04:05")
-	case string:
-		return t
-	default:
-		return fmt.Sprint(v)
-	}
-}
+// lineBreaks become single spaces ("\r\n" first, so it is one).
+var lineBreaks = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "\t", " ")
 
-// collapse normalizes whitespace to fit in a table cell.
+// collapse fits a value on one grid line: line breaks and tabs become spaces,
+// and any other control character becomes U+FFFD, so neither a stray \r nor
+// an escape sequence stored in the data reaches the terminal.
+// A value without them comes back as the same string, not a copy.
 func collapse(s string) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	s = strings.ReplaceAll(s, "\t", " ")
-	return s
-}
-
-func hexPreview(b []byte) string {
-	const max = 16
-	if len(b) > max {
-		b = b[:max]
+	if strings.IndexFunc(s, unicode.IsControl) < 0 {
+		return s
 	}
-	const hexdigits = "0123456789abcdef"
-	out := make([]byte, len(b)*2)
-	for i, c := range b {
-		out[i*2] = hexdigits[c>>4]
-		out[i*2+1] = hexdigits[c&0x0f]
-	}
-	return string(out)
+	s = lineBreaks.Replace(s)
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return unicode.ReplacementChar
+		}
+		return r
+	}, s)
 }
 
 // Pinger abstracts *pgxpool.Pool to ease testing and reuse.

@@ -1,17 +1,24 @@
 #!/bin/sh
 # pgtower installer — fetches the latest stable static binary from GitHub Releases.
 #
-#   curl -fsSL https://pgtower.dev | sh
+#   curl -fsSL https://pgtower.dev/install | sh
 #   curl -fsSL https://raw.githubusercontent.com/9level/pgtower/master/install.sh | sh
 #
-# pgtower was called pgtui up to v0.9: an existing pgtui install is upgraded in
-# place (binary renamed, pgtui kept as a symlink, /opt/pgtui moved to
-# /opt/pgtower). PGTUI_* overrides below are still honoured.
+# The configuration belongs to the user who runs pgtower: it lives in
+# ~/.config/pgtower/config.yml ($XDG_CONFIG_HOME/pgtower). Run through sudo,
+# the installer sets it up for the invoking user ($SUDO_USER), not for root.
+# A config.yml left in /opt/pgtower by older versions is moved there by
+# pgtower itself on its first start.
+#
+# pgtower was called pgtui up to v0.9: an existing pgtui binary is upgraded in
+# place (renamed, pgtui kept as a symlink). PGTUI_* overrides below are still
+# honoured.
 #
 # Environment overrides:
 #   PGTOWER_VERSION=vX.Y.Z            pin a version (default: latest release)
 #   PGTOWER_INSTALL_DIR=/opt/bin      install directory (default: /usr/local/bin)
-#   PGTOWER_CONFIG_DIR=/opt/pgtower     config directory to create (default: /opt/pgtower)
+#   PGTOWER_CONFIG_DIR=/path          config directory to set up (default:
+#                                     ~/.config/pgtower of the installing user)
 #
 # It does NOT compile: pgtower ships as a single static binary (CGO disabled), so
 # it runs on any Linux distro (Debian, Ubuntu, Alpine, …) and macOS — only the
@@ -21,9 +28,8 @@ set -eu
 
 REPO="9level/pgtower"
 INSTALL_DIR="${PGTOWER_INSTALL_DIR:-${PGTUI_INSTALL_DIR:-/usr/local/bin}}"
-CONFIG_DIR="${PGTOWER_CONFIG_DIR:-${PGTUI_CONFIG_DIR:-/opt/pgtower}}"
+CONFIG_DIR="${PGTOWER_CONFIG_DIR:-${PGTUI_CONFIG_DIR:-}}"
 VERSION="${PGTOWER_VERSION:-${PGTUI_VERSION:-latest}}"
-LEGACY_CONFIG_DIR="/opt/pgtui"
 
 # Colors only when stderr is a terminal.
 if [ -t 2 ]; then
@@ -88,13 +94,8 @@ BASE="https://github.com/$REPO/releases/download/$VERSION"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 say "Downloading $ASSET…"
-if ! download "$BASE/$ASSET" "$tmp/pgtower" 2>/dev/null; then
-	# Releases before v0.10 were published as pgtui-* (the project's old name).
-	ASSET="pgtui-$VERSION-$OS-$ARCH"
-	download "$BASE/$ASSET" "$tmp/pgtower" ||
-		die "download failed — no pgtower or pgtui asset for $VERSION. See https://github.com/$REPO/releases"
-	warn "$VERSION predates the rename: installing it as pgtower anyway"
-fi
+download "$BASE/$ASSET" "$tmp/pgtower" 2>/dev/null ||
+	die "download failed — $VERSION has no $ASSET. Published releases: https://github.com/$REPO/releases"
 
 # --- verify checksum when SHA256SUMS is published ---
 if download "$BASE/SHA256SUMS" "$tmp/SHA256SUMS" 2>/dev/null; then
@@ -145,40 +146,78 @@ case ":$PATH:" in
 	*) warn "$INSTALL_DIR is not on your PATH — add:  export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
 esac
 
-# --- config directory: create it and seed a commented config.yml if absent ----
-CONFIG_FILE="$CONFIG_DIR/config.yml"
-# pgtui kept its config in /opt/pgtui: move it rather than start empty.
-if [ "$CONFIG_DIR" = "/opt/pgtower" ] && [ -d "$LEGACY_CONFIG_DIR" ] && [ ! -e "$CONFIG_DIR" ]; then
-	if mv "$LEGACY_CONFIG_DIR" "$CONFIG_DIR" 2>/dev/null || { command -v sudo >/dev/null 2>&1 && sudo mv "$LEGACY_CONFIG_DIR" "$CONFIG_DIR"; }; then
-		ok "Moved $LEGACY_CONFIG_DIR → $CONFIG_DIR (your servers are kept)"
-	else
-		warn "could not move $LEGACY_CONFIG_DIR — pgtower will move it on first run"
+# --- config: ~/.config/pgtower of the user who will run pgtower ----------------
+# pgtower keeps config.yml in the home of whoever runs it and always saves it
+# there. Through sudo (curl … | sudo sh) that is the invoking user, not root:
+# everything below is created as that user, so it belongs to them.
+home_of() {
+	h=$(getent passwd "$1" 2>/dev/null | cut -d: -f6)
+	[ -n "$h" ] || h=$(dscl . -read "/Users/$1" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+	printf '%s' "$h"
+}
+TARGET_USER=$(id -un)
+TARGET_HOME=${HOME:-}
+RUN_AS=
+if [ "$(id -u)" = 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+	TARGET_USER=$SUDO_USER
+	TARGET_HOME=$(home_of "$SUDO_USER")
+	RUN_AS=$SUDO_USER
+fi
+as_target() {
+	if [ -n "$RUN_AS" ]; then sudo -u "$RUN_AS" "$@"; else "$@"; fi
+}
+xdg=${XDG_CONFIG_HOME:-}
+if [ -z "$CONFIG_DIR" ]; then
+	if [ -z "$RUN_AS" ] && [ "${xdg#/}" != "$xdg" ]; then # set and absolute
+		CONFIG_DIR="$xdg/pgtower"
+	elif [ -n "$TARGET_HOME" ]; then
+		CONFIG_DIR="$TARGET_HOME/.config/pgtower"
 	fi
 fi
-say "Ensuring config directory $CONFIG_DIR…"
-# pgtower runs as you, not root, and saves config.yml atomically (temp file +
-# rename inside this directory): a directory created with sudo is handed to you.
-ME="$(id -u):$(id -g)"
-if mkdir -p "$CONFIG_DIR" 2>/dev/null && [ -w "$CONFIG_DIR" ]; then
-	:
-elif [ ! -e "$CONFIG_DIR" ] && command -v sudo >/dev/null 2>&1; then
-	warn "$(dirname "$CONFIG_DIR") needs root — using sudo, then handing $CONFIG_DIR to $(id -un)"
-	{ sudo mkdir -p "$CONFIG_DIR" && sudo chown "$ME" "$CONFIG_DIR"; } 2>/dev/null ||
-		warn "could not create $CONFIG_DIR"
-elif [ ! -e "$CONFIG_DIR" ]; then
-	warn "cannot create $CONFIG_DIR (no write access and no sudo)"
+CONFIG_FILE="$CONFIG_DIR/config.yml"
+
+# Config from older versions, in the system directories pgtower still reads:
+# never seed an empty config.yml that would hide it.
+OLD_CONFIG=
+if [ -z "${PGTOWER_CONFIG_DIR:-${PGTUI_CONFIG_DIR:-}}" ]; then
+	for f in /opt/pgtower/config.yml /opt/pgtower/config.yaml /opt/pgtower/.env \
+		/opt/pgtui/config.yml /opt/pgtui/config.yaml /opt/pgtui/.env \
+		/etc/pgtower/config.yml /etc/pgtower/config.yaml; do
+		if [ -e "$f" ]; then OLD_CONFIG=$f; break; fi
+	done
 fi
 
 CONFIG_FIX=
-if [ -f "$CONFIG_FILE" ] && [ ! -r "$CONFIG_FILE" ]; then
-	CONFIG_FIX="sudo chown $ME $CONFIG_DIR $CONFIG_FILE"
-	warn "$CONFIG_FILE is not readable by $(id -un), so pgtower cannot start. Fix:  $CONFIG_FIX"
-elif [ -d "$CONFIG_DIR" ] && [ ! -w "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ] && [ ! -f "$CONFIG_DIR/.env" ] && [ ! -d "$LEGACY_CONFIG_DIR" ]; then
-	CONFIG_FIX="sudo chown $ME $CONFIG_DIR"
-	warn "$CONFIG_DIR is not writable by $(id -un) — skipping the starter config. Fix:  $CONFIG_FIX"
-elif [ -d "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ] && [ ! -f "$CONFIG_DIR/.env" ] && [ ! -d "$LEGACY_CONFIG_DIR" ]; then
-	tmpl=$(mktemp)
-	cat > "$tmpl" <<'YML'
+if [ -z "$CONFIG_DIR" ]; then
+	warn "could not find the home directory of $TARGET_USER — skipping the config; pgtower creates it on its first save"
+elif as_target test -e "$CONFIG_FILE"; then
+	if ! as_target test -r "$CONFIG_FILE"; then
+		CONFIG_FIX="sudo chown $TARGET_USER $CONFIG_FILE"
+		warn "$CONFIG_FILE is not readable by $TARGET_USER, so pgtower cannot use it. Fix:  $CONFIG_FIX"
+	elif ! grep -q '^version:' "$CONFIG_FILE" 2>/dev/null; then
+		ok "Config present: $CONFIG_FILE — pgtower upgrades it to the multi-server format on first run (original kept as config.yml.v1.bak)"
+	else
+		ok "Config already present: $CONFIG_FILE (left untouched)"
+	fi
+elif [ -n "$OLD_CONFIG" ]; then
+	owner=$(ls -ld "$OLD_CONFIG" | awk '{print $3}')
+	perms=$(ls -ld "$OLD_CONFIG" | cut -c5-10)
+	case "$OLD_CONFIG" in
+	*/.env)
+		ok "Legacy $OLD_CONFIG found — pgtower imports it into config.yml on first run (original kept as .env.v1.bak)" ;;
+	/etc/*)
+		ok "System-wide config $OLD_CONFIG found — pgtower reads it; your own changes are saved to $CONFIG_FILE" ;;
+	*)
+		if [ "$owner" = "$TARGET_USER" ] && [ "$perms" = "------" ]; then
+			ok "Found your config in $OLD_CONFIG — pgtower moves it to $CONFIG_FILE on its first start (original kept as $(basename "$OLD_CONFIG").moved.bak)"
+		else
+			warn "$OLD_CONFIG belongs to $owner or is shared, so pgtower only reads it and saves your changes to $CONFIG_FILE."
+			warn "If it holds your own servers, make it yours and pgtower moves it on its next start:  sudo chown $TARGET_USER $OLD_CONFIG && sudo chmod 600 $OLD_CONFIG"
+		fi ;;
+	esac
+else
+	say "Setting up $CONFIG_DIR for $TARGET_USER…"
+	if as_target mkdir -p "$CONFIG_DIR" 2>/dev/null && as_target sh -c 'umask 077 && cat > "$1"' sh "$CONFIG_FILE" <<'YML'
 # pgtower configuration — https://github.com/9level/pgtower
 #
 # Managed by pgtower: the Servers screen (press S) saves here. Hand edits
@@ -189,15 +228,12 @@ elif [ -d "$CONFIG_DIR" ] && [ ! -f "$CONFIG_FILE" ] && [ ! -f "$CONFIG_DIR/.env
 version: 2
 connections: []
 YML
-	install -m 0600 "$tmpl" "$CONFIG_FILE" 2>/dev/null
-	rm -f "$tmpl"
-	[ -f "$CONFIG_FILE" ] && ok "Starter config written: $CONFIG_FILE"
-elif [ -f "$CONFIG_FILE" ] && ! grep -q '^version:' "$CONFIG_FILE" 2>/dev/null; then
-	ok "Config present: $CONFIG_FILE — pgtower upgrades it to the multi-server format on first run (original kept as config.yml.v1.bak)"
-elif [ -f "$CONFIG_DIR/.env" ]; then
-	ok "Legacy $CONFIG_DIR/.env found — pgtower imports it into config.yml on first run (original kept as .env.v1.bak)"
-elif [ -f "$CONFIG_FILE" ]; then
-	ok "Config already present: $CONFIG_FILE (left untouched)"
+	then
+		ok "Starter config written: $CONFIG_FILE"
+	else
+		CONFIG_FIX="sudo mkdir -p $CONFIG_DIR && sudo chown $TARGET_USER $CONFIG_DIR"
+		warn "cannot create $CONFIG_FILE as $TARGET_USER. Fix:  $CONFIG_FIX"
+	fi
 fi
 
 if [ -n "$CONFIG_FIX" ]; then

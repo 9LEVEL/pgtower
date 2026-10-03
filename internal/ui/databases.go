@@ -362,7 +362,7 @@ func (v *databasesView) openCreateDB() tea.Cmd {
 func (v *databasesView) submitCreateDB() tea.Cmd {
 	name := strings.TrimSpace(v.form.value("name"))
 	if name == "" {
-		v.status = stWarnV.Render("name is required")
+		v.form.err = "name is required"
 		return nil
 	}
 	owner := strings.TrimSpace(v.form.value("owner"))
