@@ -439,7 +439,13 @@ func (m *Model) switchTo(idx int) tea.Cmd {
 	return m.sess.scope(m.sess.tabs[idx].Init())
 }
 
+// View is the frame for the terminal, with any control character that came
+// from the data neutralized (see safeView).
 func (m *Model) View() string {
+	return safeView(m.view())
+}
+
+func (m *Model) view() string {
 	if m.quitting {
 		return ""
 	}
