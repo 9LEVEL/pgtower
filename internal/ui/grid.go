@@ -143,6 +143,16 @@ func (g *resultGrid) Update(msg tea.KeyMsg) tea.Cmd {
 	return cmd
 }
 
+// copyText is a cell's full text for copying. ok is false when the value was
+// too large to keep (db.QueryResult.Raw holds "" for it, like for NULL).
+func (g *resultGrid) copyText(r, c int) (text string, ok bool) {
+	if text = g.raw[r][c]; text != "" {
+		return text, true
+	}
+	disp := g.rows[r][c]
+	return "", disp == "" || disp == "∅"
+}
+
 // copyCell copies the full text of the active cell. NULL and empty cells leave
 // the clipboard alone.
 func (g *resultGrid) copyCell() tea.Cmd {
@@ -150,8 +160,12 @@ func (g *resultGrid) copyCell() tea.Cmd {
 	if r < 0 || r >= len(g.raw) || c >= len(g.raw[r]) {
 		return nil
 	}
-	col, text := g.cols[c], g.raw[r][c]
-	if text == "" {
+	col := g.cols[c]
+	text, ok := g.copyText(r, c)
+	switch {
+	case !ok:
+		return func() tea.Msg { return statusMsg(col + " is too large to copy here — use psql or COPY") }
+	case text == "":
 		what := "empty"
 		if g.rows[r][c] == "∅" {
 			what = "NULL"
@@ -162,13 +176,26 @@ func (g *resultGrid) copyCell() tea.Cmd {
 }
 
 // copyRow copies the selected row, tab-separated (pastes into a spreadsheet).
+// A value too large to copy is left empty, and the status says so.
 func (g *resultGrid) copyRow() tea.Cmd {
 	r := g.table.Cursor()
 	if r < 0 || r >= len(g.raw) {
 		return nil
 	}
-	return copyToClipboard(tsvRow(g.raw[r]),
-		fmt.Sprintf("row %d (%s, tab-separated)", r+1, plural(len(g.raw[r]), "column")))
+	cells := make([]string, len(g.raw[r]))
+	tooLarge := 0
+	for c := range cells {
+		text, ok := g.copyText(r, c)
+		if !ok {
+			tooLarge++
+		}
+		cells[c] = text
+	}
+	what := fmt.Sprintf("row %d (%s, tab-separated)", r+1, plural(len(cells), "column"))
+	if tooLarge > 0 {
+		what += fmt.Sprintf(", %s too large left empty", plural(tooLarge, "value"))
+	}
+	return copyToClipboard(tsvRow(cells), what)
 }
 
 // tsvRow joins cells with tabs. A cell holding a tab, line break or quote is

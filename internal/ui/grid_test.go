@@ -264,3 +264,48 @@ func TestTSVRow(t *testing.T) {
 		t.Errorf("tsvRow = %q, want %q", got, want)
 	}
 }
+
+// A value too large to keep for copying (see db.QueryResult.Raw) is shown,
+// abbreviated, but y says it can't be copied and Y leaves it empty.
+func TestCopyTooLargeValue(t *testing.T) {
+	got, _ := stubClipboard(t, nil)
+	v := newTestQueryView()
+	v.Update(queryMsg{res: db.QueryResult{Columns: []string{"id", "blob"},
+		Rows: [][]string{{"1", `\x000102030405060708090a0b0c0d0e0f…`}},
+		Raw:  [][]string{{"1", ""}}, RowCount: 1}})
+
+	v.Update(key("right"))
+	status := runStatus(t, v.Update(key("y")))
+	if len(*got) != 0 {
+		t.Errorf("a value too large to keep was copied: %q", *got)
+	}
+	assertContains(t, status, "blob is too large to copy")
+
+	status = runStatus(t, v.Update(key("Y")))
+	if len(*got) != 1 || (*got)[0] != "1\t" {
+		t.Errorf("row copied as %q, want the large value left empty", *got)
+	}
+	assertContains(t, status, "1 value too large left empty")
+}
+
+// While the next table loads, or after it failed, the data browser's grid
+// still holds the previous table: y / Y must not copy from it.
+func TestDataBrowserCopyWaitsForLoad(t *testing.T) {
+	stubClipboard(t, nil)
+	b := newDataBrowser(nil)
+	b.SetSize(120, 30)
+	b.grid.SetData(db.QueryResult{Columns: []string{"a"}, Rows: [][]string{{"old"}}, Raw: [][]string{{"old"}}})
+
+	b.loading = true
+	if b.Update(key("y")) != nil {
+		t.Error("y copied the previous table while the next one loads")
+	}
+	b.loading, b.err = false, errors.New("permission denied")
+	if b.Update(key("Y")) != nil {
+		t.Error("Y copied the previous table after a load error")
+	}
+	b.err = nil
+	if b.Update(key("y")) == nil {
+		t.Error("y must copy once the table is loaded")
+	}
+}

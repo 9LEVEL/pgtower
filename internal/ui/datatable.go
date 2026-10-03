@@ -152,6 +152,10 @@ func (b *dataBrowser) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case "r":
 		b.grid.resetColumns()
 		return b.run(b.baseSQL)
+	case "y", "Y":
+		if b.loading || b.err != nil {
+			return nil // the grid still holds the previous table's rows
+		}
 	}
 	return b.grid.Update(msg)
 }
