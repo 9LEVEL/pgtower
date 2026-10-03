@@ -94,13 +94,8 @@ BASE="https://github.com/$REPO/releases/download/$VERSION"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 say "Downloading $ASSET…"
-if ! download "$BASE/$ASSET" "$tmp/pgtower" 2>/dev/null; then
-	# Releases before v0.10 were published as pgtui-* (the project's old name).
-	ASSET="pgtui-$VERSION-$OS-$ARCH"
-	download "$BASE/$ASSET" "$tmp/pgtower" ||
-		die "download failed — no pgtower or pgtui asset for $VERSION. See https://github.com/$REPO/releases"
-	warn "$VERSION predates the rename: installing it as pgtower anyway"
-fi
+download "$BASE/$ASSET" "$tmp/pgtower" 2>/dev/null ||
+	die "download failed — $VERSION has no $ASSET. Published releases: https://github.com/$REPO/releases"
 
 # --- verify checksum when SHA256SUMS is published ---
 if download "$BASE/SHA256SUMS" "$tmp/SHA256SUMS" 2>/dev/null; then
