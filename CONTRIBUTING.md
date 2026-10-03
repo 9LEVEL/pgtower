@@ -112,4 +112,4 @@ PostgreSQL version, what you did, what you expected, and what happened. A
 
 If you find a security issue (e.g. a way to run unconfirmed destructive SQL, or
 a credential-handling problem), please report it privately rather than opening a
-public issue.
+public issue: see [SECURITY.md](SECURITY.md).
