@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -273,6 +274,10 @@ func (s *Store) Save() error {
 	if path == "" {
 		path = defaultSavePath()
 	}
+	if slices.Contains(s.Skipped, path) {
+		return fmt.Errorf("%s belongs to another user (no permission to read it): "+
+			"fix its owner or remove it, then save again", path)
+	}
 	if err := writeFileAtomic(path, renderConfig(fc)); err != nil {
 		return err
 	}
@@ -290,10 +295,23 @@ func defaultSavePath() string {
 	if d := Env("CONFIG_DIR"); d != "" {
 		return filepath.Join(d, "config.yml")
 	}
-	if dirWritable(DefaultConfigDir) {
+	// A config file already there was skipped as unreadable: it is another
+	// user's, so never replace it.
+	if !hasConfigFile(DefaultConfigDir) && dirWritable(DefaultConfigDir) {
 		return filepath.Join(DefaultConfigDir, "config.yml")
 	}
 	return filepath.Join(userConfigDir(), "config.yml")
+}
+
+// hasConfigFile reports whether dir may hold a config file; an entry that
+// cannot even be checked counts as present.
+func hasConfigFile(dir string) bool {
+	for _, n := range []string{"config.yml", "config.yaml"} {
+		if _, err := os.Lstat(filepath.Join(dir, n)); !errors.Is(err, os.ErrNotExist) {
+			return true
+		}
+	}
+	return false
 }
 
 func dirWritable(dir string) bool {

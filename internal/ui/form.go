@@ -57,6 +57,7 @@ type form struct {
 	title  string
 	fields []formField
 	focus  int
+	note   string // guidance shown under the fields
 	err    string // validation message shown under the fields
 }
 
@@ -65,6 +66,7 @@ func (f *form) open(title string, fields []formField) tea.Cmd {
 	f.title = title
 	f.fields = fields
 	f.focus = 0
+	f.note = ""
 	f.err = ""
 	return f.refocus()
 }
@@ -173,12 +175,17 @@ func (f *form) view(w, h int) string {
 		b = append(b, label+"  "+val)
 	}
 
+	boxW := clampInt(w-8, 40, 74)
 	hints := stKeyHint.Render("tab/↑↓ fields · ←→ options · enter confirm · esc cancel")
-	content := title + "\n\n" + joinLines(b) + "\n\n" + hints
+	content := title + "\n\n" + joinLines(b) + "\n\n"
+	if f.note != "" {
+		content += stLabel.Width(boxW-6).Render(f.note) + "\n\n"
+	}
+	content += hints
 	if f.err != "" {
 		content += "\n\n" + stErr.Render(f.err)
 	}
-	box := stModal.BorderForeground(colAccent).Width(clampInt(w-8, 40, 74)).Render(content)
+	box := stModal.BorderForeground(colAccent).Width(boxW).Render(content)
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
 }
 

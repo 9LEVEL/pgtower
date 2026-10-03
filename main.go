@@ -92,6 +92,9 @@ func main() {
 }
 
 func printServers(s *config.Store) {
+	for _, p := range s.Skipped {
+		fmt.Fprintln(os.Stderr, "pgtower: skipped "+p+" (no permission to read it)")
+	}
 	if len(s.Names()) == 0 {
 		fmt.Println("no servers configured — run pgtower and press S, or set DATABASE_URL")
 		return

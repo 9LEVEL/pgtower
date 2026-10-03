@@ -143,6 +143,12 @@ func (m *Model) serversKey(msg tea.KeyMsg) tea.Cmd {
 	case "a", "n":
 		s.editing = ""
 		return s.form.open("New server", serverFields(config.Connection{Port: 5432, SSLMode: "prefer"}))
+	case "l":
+		s.editing = ""
+		c, note := localServer(m.store)
+		cmd := s.form.open("New server · local socket", serverFields(c))
+		s.form.note = note
+		return cmd
 	case "e":
 		if !ok {
 			return nil
@@ -235,6 +241,46 @@ func (m *Model) probe(c config.Connection) tea.Cmd {
 	}
 }
 
+// localServer is the "l" preset: the PostgreSQL on this machine over its unix
+// socket with peer authentication — no password, the OS user as the role. The
+// note says which socket was found and who peer will let in.
+func localServer(store *config.Store) (config.Connection, string) {
+	c := config.Connection{Name: freeName(store, "local"), Host: db.SocketDirs[0], Port: 5432, SSLMode: "disable"}
+	var b strings.Builder
+	if socks := db.LocalSockets(); len(socks) > 0 {
+		c.Host, c.Port = socks[0].Dir, socks[0].Port
+		fmt.Fprintf(&b, "Socket found: %s (port %d).", c.Host, c.Port)
+		if len(socks) > 1 {
+			var more []string
+			for _, s := range socks[1:] {
+				more = append(more, fmt.Sprintf("%s port %d", s.Dir, s.Port))
+			}
+			b.WriteString(" Also: " + strings.Join(more, ", ") + ".")
+		}
+	} else {
+		b.WriteString("No PostgreSQL socket found in " + strings.Join(db.SocketDirs, ", ") +
+			". Is the server running on this machine? Set Host to its socket directory.")
+	}
+	c.User = config.DefaultUser(c.Host)
+	b.WriteString("\n\nPeer authentication needs no password, but admits only the role named " +
+		"after the OS user running pgtower (" + c.User + ").")
+	if c.User == "root" {
+		b.WriteString(" To work as postgres instead, quit and run: sudo -u postgres pgtower")
+	}
+	return c, b.String()
+}
+
+// freeName returns base, or base-2, base-3… when that name is taken.
+func freeName(store *config.Store, base string) string {
+	name := base
+	for i := 2; ; i++ {
+		if _, taken := store.Find(name); !taken {
+			return name
+		}
+		name = fmt.Sprintf("%s-%d", base, i)
+	}
+}
+
 func serverFields(c config.Connection) []formField {
 	text := func(key, label, placeholder, value string) formField {
 		f := textField(key, label, placeholder)
@@ -252,7 +298,7 @@ func serverFields(c config.Connection) []formField {
 		text("name", "Name", "e.g. prod-db1", c.Name),
 		text("host", "Host", "IP, hostname or /var/run/postgresql", c.Host),
 		text("port", "Port", "5432", port),
-		text("user", "User", "postgres", c.User),
+		text("user", "User", "postgres · socket: OS user", c.User),
 		pw,
 		text("database", "Admin DB", "postgres", c.Database),
 		selectOf("sslmode", "SSL mode", sslModes, orStr(c.SSLMode, "prefer")),
@@ -317,7 +363,8 @@ func (m *Model) serversView() string {
 	names := m.store.Names()
 	if len(names) == 0 {
 		rows = append(rows, stLabel.Render("No servers yet. Press ")+stKey.Render("a")+
-			stLabel.Render(" to add your first one."))
+			stLabel.Render(" to add your first one, or ")+stKey.Render("l")+
+			stLabel.Render(" for the PostgreSQL on this machine (unix socket)."))
 	}
 	for i, n := range names {
 		c, _ := m.store.Find(n)
@@ -341,8 +388,8 @@ func (m *Model) serversView() string {
 	if m.store.Path != "" {
 		where = m.store.Path
 	}
-	hints := []string{hint("enter", "connect"), hint("a", "add"), hint("e", "edit"), hint("d", "delete"),
-		hint("t", "test"), hint("*", "default")}
+	hints := []string{hint("enter", "connect"), hint("a", "add"), hint("l", "add local socket"), hint("e", "edit"),
+		hint("d", "delete"), hint("t", "test"), hint("*", "default")}
 	if m.sess != nil {
 		hints = append(hints, hint("esc", "close"))
 	} else {
@@ -351,6 +398,9 @@ func (m *Model) serversView() string {
 	content := title + "\n\n" + strings.Join(rows, "\n") + detail + "\n\n" +
 		lipgloss.NewStyle().Width(inner).Render(strings.Join(hints, "  ")) + "\n" +
 		stKeyHint.Render(truncate("config: "+where, inner))
+	if len(m.store.Skipped) > 0 {
+		content += "\n" + stKeyHint.Render(truncate("skipped, no permission: "+strings.Join(m.store.Skipped, ", "), inner))
+	}
 	box := stModal.BorderForeground(colAccent).Width(boxW).Render(content)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }

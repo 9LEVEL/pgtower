@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os/user"
 	"strings"
 	"syscall"
 	"time"
@@ -74,7 +75,7 @@ func ExplainConnect(err error, host, port string) *ConnError {
 	var dns *net.DNSError
 	switch {
 	case errors.As(err, &pg):
-		explainPg(e, pg)
+		explainPg(e, pg, socket)
 
 	case errors.As(err, &dns):
 		e.Kind, e.Title = ConnUnknownHost, "Unknown host"
@@ -121,7 +122,7 @@ func ExplainConnect(err error, host, port string) *ConnError {
 	return e
 }
 
-func explainPg(e *ConnError, pg *pgconn.PgError) {
+func explainPg(e *ConnError, pg *pgconn.PgError, socket bool) {
 	switch pg.Code {
 	case "28P01":
 		e.Kind, e.Title = ConnAuth, "Authentication failed"
@@ -132,6 +133,9 @@ func explainPg(e *ConnError, pg *pgconn.PgError) {
 		e.Detail = pg.Message
 		e.Hint = "The server's pg_hba.conf has no rule for this user/database/address, " +
 			"or peer authentication does not match the OS user."
+		if socket {
+			e.Hint = peerHint()
+		}
 	case "3D000":
 		e.Kind, e.Title = ConnNoDatabase, "Database does not exist"
 		e.Detail = pg.Message
@@ -149,6 +153,19 @@ func explainPg(e *ConnError, pg *pgconn.PgError) {
 		e.Detail = pg.Message
 		e.Hint = pg.Hint
 	}
+}
+
+// peerHint explains the usual reason a local-socket login is rejected: peer
+// authentication (the default "local" rule) only admits the role named after
+// the OS user.
+func peerHint() string {
+	who := ""
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		who = " (" + u.Username + ")"
+	}
+	return "Over the local socket, peer authentication admits only the role named after the OS user " +
+		"running pgtower" + who + ": set User to that role, or start pgtower as the role's OS user " +
+		"(sudo -u postgres pgtower). Otherwise check the local lines of pg_hba.conf."
 }
 
 func isTimeout(err error) bool {

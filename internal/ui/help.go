@@ -28,7 +28,7 @@ func helpBody() string {
 		{"Global navigation", ""},
 		{"1 – 7", "switch tab"},
 		{"tab / shift+tab", "next / previous tab"},
-		{"S  /  ctrl+o", "servers: switch, add, edit, test, set default"},
+		{"S  /  ctrl+o", "servers: switch, add (l: local socket), edit, test, set default"},
 		{"?", "open/close this help"},
 		{"q  /  ctrl+c", "quit"},
 		{"", ""},
