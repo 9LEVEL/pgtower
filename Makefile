@@ -1,8 +1,4 @@
 BINARY  := pgtower
-# pgtower was called pgtui up to v0.9. Releases also carry pgtui-* copies so
-# v0.9 self-updaters (which look for pgtui-* assets) can reach the new name.
-# Drop LEGACY_BINARY once v0.9 installs are unlikely (planned for v0.12).
-LEGACY_BINARY := pgtui
 PKG     := github.com/9level/pgtower
 GO      := go
 VERSION ?= dev
@@ -37,7 +33,6 @@ build-all:
 		out=dist/$(BINARY)-$(VERSION)-$$os-$$arch; \
 		echo "-> $$out"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $$out . || exit 1; \
-		if [ -n "$(LEGACY_BINARY)" ]; then cp $$out dist/$(LEGACY_BINARY)-$(VERSION)-$$os-$$arch; fi; \
 	done
 	@cd dist && { command -v sha256sum >/dev/null 2>&1 && sha256sum *-$(VERSION)-* || shasum -a 256 *-$(VERSION)-*; } > SHA256SUMS
 	@echo "binaries + SHA256SUMS in dist/"

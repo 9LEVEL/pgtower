@@ -223,7 +223,7 @@ only the name changed, and the upgrade handles it for you:
 
 | Before (pgtui) | Now (pgtower) | How it moves |
 |---|---|---|
-| `pgtui` command | `pgtower` | The in-app update or the installer renames the binary; `pgtui` stays as a **symlink** so scripts keep working (delete it whenever you like). |
+| `pgtui` command | `pgtower` | Re-run the installer (pgtui's own in-app update no longer reaches pgtower): it renames the binary and leaves `pgtui` as a **symlink** so scripts keep working (delete it whenever you like). |
 | `/opt/pgtui/`, `~/.config/pgtui/`, `/etc/pgtui/` | `/opt/pgtower/`, `~/.config/pgtower/`, `/etc/pgtower/` | Moved on first run; nothing is left behind (your own config then moves on to `~/.config/pgtower/`, see below). If a directory can't be moved (permissions), it is still read in place and pgtower tells you. |
 | `PGTUI_*` variables | `PGTOWER_*` | The old names are **still read** as a fallback; pgtower lists the ones you should rename. |
 | `application_name = 'pgtui'` | `'pgtower'` | Update any monitoring filter that relied on it. |

@@ -64,17 +64,15 @@ defaults**. There is **no `.env`-file support** — env vars only, plus the file
 3. `git push origin master`  — `make release` pushes only the tag; sync the branch.
 4. CI (`.github/workflows/ci.yml`, on `v*.*.*` tags) runs `make build-all` and
    attaches `dist/*` to a GitHub Release with auto-generated notes.
-5. Verify: `gh release view vX.Y.Z` lists **8 binaries + `SHA256SUMS`** (4 while
-   `LEGACY_BINARY` is empty).
+5. Verify: `gh release view vX.Y.Z` lists **4 binaries + `SHA256SUMS`**.
 
 The version exists **only** in the git tag (injected via `-ldflags
 main.version`); nothing in the source needs editing to bump it. Release assets
 **must** stay named `pgtower-<version>-{linux,darwin}-{amd64,arm64}` and
 `SHA256SUMS` — both `install.sh` and the in-app self-updater
-(`internal/update`) fetch them by name. Until `LEGACY_BINARY` is dropped from
-the Makefile (planned for v0.12), every release also carries identical
-`pgtui-<version>-*` copies so v0.9 self-updaters can reach pgtower: a release
-then lists **8 binaries + `SHA256SUMS`**. Doc command-examples use a `vX.Y.Z`
+(`internal/update`) fetch them by name. Releases no longer carry `pgtui-*`
+copies (dropped after v0.12.0), so pgtui v0.9 cannot self-update to pgtower;
+it reinstalls with `install.sh`. Doc command-examples use a `vX.Y.Z`
 placeholder so they never go stale.
 
 ## Commit rules
