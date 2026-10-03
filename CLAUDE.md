@@ -32,11 +32,20 @@ defaults**. There is **no `.env`-file support** — env vars only, plus the file
   global settings, and is **written by the app** (Servers screen, `S`) — keep
   `config.Store.Save` the only writer; it is atomic and `0600`. Template and key
   reference: `config.yml.example`.
-- Searched in `./`, the binary's dir, `~/.config/pgtower/`, `/opt/pgtower/`,
-  `/etc/pgtower/`; `PGTOWER_CONFIG` (file) or `PGTOWER_CONFIG_DIR` (dir) replace the
-  search (tests rely on this for isolation). The default search skips files
+- It lives in `config.UserDir()` = `~/.config/pgtower` (`$XDG_CONFIG_HOME`,
+  macOS too) and **pgtower always saves there**. Searched in `./`, the binary's
+  dir, `~/.config/pgtower/`, then the system dirs `/opt/pgtower/`,
+  `/etc/pgtower/` (read-only, admin-managed: a config read from there is saved
+  to the user dir). `PGTOWER_CONFIG` (file) or `PGTOWER_CONFIG_DIR` (dir) replace
+  the search (tests rely on this for isolation; `isolateSearch` in
+  `location_test.go` covers the default search). The default search skips files
   the user may not read (`Store.Skipped`) and never saves over them; an
   explicit `PGTOWER_CONFIG`/`_DIR` file must be readable.
+- Up to v0.11 the config lived in `/opt/pgtower`: `internal/config/location.go`
+  moves the user's own private (`0600`, owned) file there to the user dir on
+  load (backup `*.moved.bak`, one-time notice); others' files are only read.
+  `install.sh` sets up the user dir for the invoking user (`$SUDO_USER` under
+  sudo) and never seeds a config that would hide an older one.
 - `DATABASE_URL` / `PG*` add a session-only connection named `env`; it is never
   saved. `PGTOWER_*` override the settings.
 - pgtower was **pgtui** up to v0.9. `internal/config/legacy.go` still reads

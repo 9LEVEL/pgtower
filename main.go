@@ -31,8 +31,9 @@ PostgreSQL administration TUI.
   -v, --version       print the version
   -h, --help          this help
 
-Servers are managed in the app (press S) and saved to config.yml, searched in
-./  the binary's dir  ~/.config/pgtower/  /opt/pgtower/  /etc/pgtower/.
+Servers are managed in the app (press S) and saved to
+~/.config/pgtower/config.yml. config.yml is searched in ./  the binary's dir
+~/.config/pgtower/  /opt/pgtower/  /etc/pgtower/  (the last two: read only).
 DATABASE_URL (or PGHOST/PGUSER/…) adds a session-only server that opens first.
 Shortcuts: '?' inside the app.`
 

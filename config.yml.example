@@ -2,12 +2,20 @@
 #
 # pgtower manages this file: the Servers screen (press S) adds, edits and removes
 # servers and saves them here (mode 0600 — it may hold passwords). You rarely
-# need to edit it by hand.
+# need to edit it by hand. It lives in ~/.config/pgtower/config.yml
+# ($XDG_CONFIG_HOME/pgtower when set, on macOS too), set up by install.sh for
+# the user who runs pgtower; pgtower always saves it there.
 #
 # Search order (first hit wins): ./config.yml, next to the pgtower binary,
-# ~/.config/pgtower/, /opt/pgtower/ (created by install.sh), /etc/pgtower/.
-# PGTOWER_CONFIG (a file) or PGTOWER_CONFIG_DIR (a directory) replace the search.
-# A file this user may not read (another user's 0600 config) is skipped.
+# ~/.config/pgtower/, then the system-wide /opt/pgtower/ and /etc/pgtower/.
+# Those two are read, never written: changes to a config read from there are
+# saved to ~/.config/pgtower/config.yml. PGTOWER_CONFIG (a file) or
+# PGTOWER_CONFIG_DIR (a directory) replace the search. A file this user may not
+# read (another user's 0600 config) is skipped.
+#
+# Upgrading from v0.11 or older? Your own /opt/pgtower/config.yml (owned by you,
+# mode 0600) is moved here on the first start; the original is kept as
+# config.yml.moved.bak.
 #
 # Precedence (highest first): environment variables > this file > defaults.
 # DATABASE_URL (or PGHOST/PGUSER/…) adds a session-only server named "env"

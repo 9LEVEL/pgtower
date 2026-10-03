@@ -384,9 +384,11 @@ func (m *Model) serversView() string {
 		detail += "\n" + stWarnV.Render("connecting to "+m.connecting+"…") + stKeyHint.Render("   esc cancel")
 	}
 
-	where := "not saved yet"
-	if m.store.Path != "" {
-		where = m.store.Path
+	where := m.store.SavePath() + " (not saved yet)"
+	if p := m.store.Path; p != "" && p != m.store.SavePath() {
+		where = p + " · changes saved to " + m.store.SavePath()
+	} else if p != "" {
+		where = p
 	}
 	hints := []string{hint("enter", "connect"), hint("a", "add"), hint("l", "add local socket"), hint("e", "edit"),
 		hint("d", "delete"), hint("t", "test"), hint("*", "default")}
@@ -504,6 +506,34 @@ func renameNotice(bin update.NameResult, moved []string, moveErr error, legacyEn
 	return "Welcome to pgtower", b.String(), danger, true
 }
 
+// relocationNotice is the one-time explanation shown on the run that moved the
+// configuration to ~/.config/pgtower (or could not).
+func relocationNotice(mig *config.Migration) (string, string, bool) {
+	var b strings.Builder
+	if len(mig.Relocated) == 0 {
+		b.WriteString("pgtower now keeps your configuration in " + config.UserDir() +
+			" and saves it there, but could not move it:\n\n  " + mig.RelocateErr.Error() + "\n\n" +
+			"It keeps using " + mig.Path + " for now and tries again on the next start.")
+		return "Configuration not moved", b.String(), true
+	}
+	b.WriteString("pgtower now keeps your configuration in your home directory and always saves it there. " +
+		"Nothing about your servers changed.\n\n")
+	for _, mv := range mig.Relocated {
+		b.WriteString("• Moved: " + mv + "\n")
+	}
+	for _, bak := range mig.Backups {
+		b.WriteString("• Original kept as: " + bak + "\n")
+	}
+	if mig.RelocateErr != nil {
+		b.WriteString("\n" + mig.RelocateErr.Error() + "\n")
+		return "Configuration moved", b.String(), true
+	}
+	if len(mig.Backups) > 0 {
+		b.WriteString("\nThe backup may hold passwords: delete it once you're happy.")
+	}
+	return "Configuration moved", b.String(), false
+}
+
 // migrationNotice is the one-time explanation shown on the run that upgraded
 // a legacy configuration.
 func migrationNotice(mig *config.Migration, version string) (string, string, bool) {
@@ -520,6 +550,9 @@ func migrationNotice(mig *config.Migration, version string) (string, string, boo
 	b.WriteString("• Migrated from: " + strings.Join(mig.From, " + ") + "\n")
 	if len(mig.Imported) > 0 {
 		b.WriteString("• Server created: " + strings.Join(mig.Imported, ", ") + " (default)\n")
+	}
+	for _, mv := range mig.Relocated {
+		b.WriteString("• Moved: " + mv + "\n")
 	}
 	b.WriteString("• Now using: " + mig.Path + "\n")
 	for _, bak := range mig.Backups {
