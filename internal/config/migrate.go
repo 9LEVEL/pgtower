@@ -29,6 +29,12 @@ type Migration struct {
 	// MoveErr is set when one could not be moved (it is still read in place).
 	Moved   []string
 	MoveErr error
+
+	// Relocated lists config moved to UserDir ("from → to"): this user's
+	// config.yml out of /opt/pgtower, or the macOS ~/Library directory.
+	// RelocateErr is set when that failed or was left half done.
+	Relocated   []string
+	RelocateErr error
 }
 
 // legacyFile is config.yml as written by v0.8 and earlier: one connection at
@@ -147,11 +153,11 @@ func ownedDirs() []string {
 		return []string{d}
 	}
 	var dirs []string
-	if d := userConfigDir(); d != "" {
+	if d := UserDir(); d != "" {
 		dirs = append(dirs, d)
 	}
-	dirs = append(dirs, DefaultConfigDir, "/etc/pgtower")
-	for _, p := range legacyDirPairs() {
+	dirs = append(dirs, systemDir, etcDir)
+	for _, p := range append(legacyDirPairs(), platformDirPairs()...) {
 		dirs = append(dirs, p[0])
 	}
 	return dirs
@@ -263,17 +269,15 @@ func nameFromConn(c Connection) string {
 }
 
 // Save writes the store to config.yml (format 2, mode 0600 — it may hold
-// passwords). The first save without an existing file picks DefaultConfigDir
-// when writable, else the user config dir.
+// passwords): back where it was read from, except that a file read from a
+// system directory (admin-managed) is saved to UserDir, which then takes
+// precedence. With no file yet, it goes to UserDir.
 func (s *Store) Save() error {
 	fc := s.file
 	fc.Version = FileVersion
 	fc.Default = s.Default
 	fc.Connections = s.Connections
-	path := s.Path
-	if path == "" {
-		path = defaultSavePath()
-	}
+	path := s.SavePath()
 	if slices.Contains(s.Skipped, path) {
 		return fmt.Errorf("%s belongs to another user (no permission to read it): "+
 			"fix its owner or remove it, then save again", path)
@@ -288,6 +292,14 @@ func (s *Store) Save() error {
 	return nil
 }
 
+// SavePath is the file Save writes.
+func (s *Store) SavePath() string {
+	if s.Path == "" || inSystemDir(s.Path) {
+		return defaultSavePath()
+	}
+	return s.Path
+}
+
 func defaultSavePath() string {
 	if f := Env("CONFIG"); f != "" {
 		return f
@@ -295,36 +307,7 @@ func defaultSavePath() string {
 	if d := Env("CONFIG_DIR"); d != "" {
 		return filepath.Join(d, "config.yml")
 	}
-	// A config file already there was skipped as unreadable: it is another
-	// user's, so never replace it.
-	if !hasConfigFile(DefaultConfigDir) && dirWritable(DefaultConfigDir) {
-		return filepath.Join(DefaultConfigDir, "config.yml")
-	}
-	return filepath.Join(userConfigDir(), "config.yml")
-}
-
-// hasConfigFile reports whether dir may hold a config file; an entry that
-// cannot even be checked counts as present.
-func hasConfigFile(dir string) bool {
-	for _, n := range []string{"config.yml", "config.yaml"} {
-		if _, err := os.Lstat(filepath.Join(dir, n)); !errors.Is(err, os.ErrNotExist) {
-			return true
-		}
-	}
-	return false
-}
-
-func dirWritable(dir string) bool {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return false
-	}
-	f, err := os.CreateTemp(dir, ".pgtower-probe-*")
-	if err != nil {
-		return false
-	}
-	f.Close()
-	os.Remove(f.Name())
-	return true
+	return filepath.Join(UserDir(), "config.yml")
 }
 
 const configHeader = `# pgtower configuration — https://github.com/9level/pgtower

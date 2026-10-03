@@ -91,6 +91,8 @@ func New(store *config.Store, version string, start *config.Connection) *Model {
 	m.updateEnabled = store.UpdateCheck && update.IsRelease(version) && !update.OptedOut()
 	if mig := store.Migration; mig != nil && len(mig.From) > 0 {
 		m.notify(migrationNotice(mig, version))
+	} else if mig != nil && (len(mig.Relocated) > 0 || mig.RelocateErr != nil) {
+		m.notify(relocationNotice(mig))
 	}
 	return m
 }

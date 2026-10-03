@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/9level/pgtower/internal/config"
 )
 
 // Repo is the canonical GitHub "owner/name" pgtower is released from.
@@ -247,11 +250,11 @@ func sha256File(path string) (string, error) {
 // --- "never suggest updates" preference (a marker file in the user config dir) ---
 
 func markerPath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
+	dir := config.UserDir()
+	if dir == "" {
+		return "", errors.New("no home directory")
 	}
-	return filepath.Join(dir, "pgtower", "no-update-check"), nil
+	return filepath.Join(dir, "no-update-check"), nil
 }
 
 // OptedOut reports whether the user asked to never be prompted again.

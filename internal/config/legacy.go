@@ -41,27 +41,36 @@ func LegacyEnv() []string {
 }
 
 // legacyDirPairs maps each pgtui config directory to its pgtower successor.
-// A variable so tests can point it at temp directories.
+// The per-user one goes straight to UserDir. A variable so tests can point it
+// at temp directories.
 var legacyDirPairs = func() [][2]string {
 	var pairs [][2]string
-	if home, err := os.UserConfigDir(); err == nil {
-		pairs = append(pairs, [2]string{filepath.Join(home, "pgtui"), filepath.Join(home, "pgtower")})
+	if home, err := os.UserConfigDir(); err == nil && UserDir() != "" {
+		pairs = append(pairs, [2]string{filepath.Join(home, "pgtui"), UserDir()})
 	}
 	return append(pairs,
-		[2]string{"/opt/pgtui", DefaultConfigDir},
-		[2]string{"/etc/pgtui", "/etc/pgtower"})
+		[2]string{legacyOptDir, systemDir},
+		[2]string{"/etc/pgtui", etcDir})
 }
 
 // relocateLegacyDirs moves pgtui's config directories to their pgtower names.
 // A directory that cannot be moved (e.g. /opt/pgtui owned by root while
 // running as a user) is left in place and still read — see configDirs.
 func relocateLegacyDirs() (moved []string, err error) {
-	for _, p := range legacyDirPairs() {
+	return relocateDirs(legacyDirPairs(), ".pgtui")
+}
+
+// relocateDirs moves each directory to its new path, or merges it into a new
+// path that already exists; a file on both sides keeps the new one and the
+// old one beside it, with suffix.
+func relocateDirs(pairs [][2]string, suffix string) (moved []string, err error) {
+	for _, p := range pairs {
 		from, to := p[0], p[1]
 		if fi, e := os.Stat(from); e != nil || !fi.IsDir() {
 			continue
 		}
 		if _, e := os.Stat(to); errors.Is(e, os.ErrNotExist) {
+			_ = os.MkdirAll(filepath.Dir(to), 0o755) // ~/.config may not exist yet
 			if e := os.Rename(from, to); e != nil {
 				err = errors.Join(err, fmt.Errorf("move %s to %s: %w", from, to, e))
 				continue
@@ -71,7 +80,7 @@ func relocateLegacyDirs() (moved []string, err error) {
 		}
 		// Both exist (e.g. the installer already seeded the new one): move the
 		// old files over, then drop the old directory once it is empty.
-		if e := mergeDir(from, to); e != nil {
+		if e := mergeDir(from, to, suffix); e != nil {
 			err = errors.Join(err, e)
 			continue
 		}
@@ -82,7 +91,7 @@ func relocateLegacyDirs() (moved []string, err error) {
 	return moved, err
 }
 
-func mergeDir(from, to string) error {
+func mergeDir(from, to, suffix string) error {
 	entries, err := os.ReadDir(from)
 	if err != nil {
 		return err
@@ -96,7 +105,7 @@ func mergeDir(from, to string) error {
 			// The new file is only the installer's empty seed: the old one wins.
 		default:
 			// Both hold real data: keep the new file, keep the old one beside it.
-			dst = uniquePath(dst + ".pgtui")
+			dst = uniquePath(dst + suffix)
 		}
 		if err := os.Rename(src, dst); err != nil {
 			return fmt.Errorf("move %s to %s: %w", src, dst, err)

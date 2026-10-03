@@ -18,10 +18,6 @@ import (
 	"strings"
 )
 
-// DefaultConfigDir is where the installer creates config.yml and where pgtower
-// looks for it when no more specific location has one.
-const DefaultConfigDir = "/opt/pgtower"
-
 // FileVersion is the config.yml format written by this build.
 const FileVersion = 2
 
@@ -86,7 +82,7 @@ type Store struct {
 	Migration *Migration
 
 	// Skipped lists config files the search passed over because this user may
-	// not read them (typically another user's 0600 file in /opt/pgtower).
+	// not read them (typically another user's 0600 file).
 	Skipped []string
 }
 
@@ -149,10 +145,12 @@ type fileV2 struct {
 // asks for a first connection.
 func Load() (*Store, error) {
 	s := &Store{}
-	var moved []string
-	var moveErr error
-	if Env("CONFIG") == "" && Env("CONFIG_DIR") == "" {
+	var moved, relocated []string
+	var moveErr, relocateErr error
+	explicit := Env("CONFIG") != "" || Env("CONFIG_DIR") != ""
+	if !explicit {
 		moved, moveErr = relocateLegacyDirs()
+		relocated, relocateErr = relocateDirs(platformDirPairs(), ".old")
 	}
 	path, raw, skipped, err := findConfigFile()
 	if err != nil {
@@ -171,6 +169,16 @@ func Load() (*Store, error) {
 		// No config.yml at all, but a pre-v0.8 .env may still hold the
 		// connection that an upgraded install silently lost.
 		s.Migration = s.importLegacyDotenv()
+	}
+	if !explicit && s.Path != "" {
+		s.relocateConfig()
+	}
+	if len(relocated) > 0 || relocateErr != nil {
+		if s.Migration == nil {
+			s.Migration = &Migration{Path: s.Path}
+		}
+		s.Migration.Relocated = append(relocated, s.Migration.Relocated...)
+		s.Migration.RelocateErr = errors.Join(relocateErr, s.Migration.RelocateErr)
 	}
 
 	if len(moved) > 0 || moveErr != nil {
@@ -503,22 +511,15 @@ func configDirs() []string {
 	if exe, err := os.Executable(); err == nil {
 		dirs = append(dirs, filepath.Dir(exe))
 	}
-	if d := userConfigDir(); d != "" {
+	if d := UserDir(); d != "" {
 		dirs = append(dirs, d)
 	}
-	dirs = append(dirs, DefaultConfigDir, "/etc/pgtower")
-	// pgtower-era directories that could not be moved are still read, last.
-	for _, p := range legacyDirPairs() {
+	dirs = append(dirs, systemDir, etcDir)
+	// Old directories that could not be moved are still read, last.
+	for _, p := range append(legacyDirPairs(), platformDirPairs()...) {
 		dirs = append(dirs, p[0])
 	}
 	return dirs
-}
-
-func userConfigDir() string {
-	if home, err := os.UserConfigDir(); err == nil {
-		return filepath.Join(home, "pgtower")
-	}
-	return ""
 }
 
 // connFromPGEnv builds the env connection from PGHOST/PGUSER/... .

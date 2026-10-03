@@ -296,6 +296,23 @@ func TestMigrationNoticeShownOnce(t *testing.T) {
 	assertContains(t, tm.View(), "Servers")
 }
 
+func TestRelocationNoticeShownOnce(t *testing.T) {
+	store := isolatedStore(t)
+	store.Migration = &config.Migration{Path: "/home/ana/.config/pgtower/config.yml",
+		Relocated: []string{"/opt/pgtower/config.yml → /home/ana/.config/pgtower/config.yml"},
+		Backups:   []string{"/opt/pgtower/config.yml.moved.bak"}}
+	m := New(store, "v0.12.0", nil)
+	var tm tea.Model = m
+	m.Init()
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 140, Height: 45})
+	assertContains(t, tm.View(), "Configuration moved", "/opt/pgtower/config.yml.moved.bak")
+
+	tm, _ = tm.Update(key("esc"))
+	if m.notice.active {
+		t.Error("the notice closes with esc")
+	}
+}
+
 // TestSwitchServersLive connects to one server, switches to another and checks
 // the old session's late results are dropped. Both names point at the test
 // cluster; what matters is the session swap.

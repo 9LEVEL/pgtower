@@ -1,6 +1,8 @@
 package update
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 )
@@ -58,5 +60,20 @@ func TestSumFor(t *testing.T) {
 	}
 	if got := sumFor(sums, "missing"); got != "" {
 		t.Errorf("sumFor(missing) = %q, want empty", got)
+	}
+}
+
+// The "never suggest updates" marker lives next to config.yml.
+func TestOptOutMarkerInUserDir(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	if OptedOut() {
+		t.Fatal("no marker yet")
+	}
+	if err := OptOut(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(xdg, "pgtower", "no-update-check")); err != nil || !OptedOut() {
+		t.Errorf("marker not in ~/.config/pgtower: %v", err)
 	}
 }
