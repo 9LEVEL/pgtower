@@ -357,6 +357,12 @@ pgtower is built so you can't lose data by accident:
 - Admin statements run over the pgx simple protocol (required for
   `CREATE`/`DROP DATABASE`), with quoted identifiers.
 - There is no code path that drops a database on its own.
+- **Text from the database can't drive your terminal.** Other users control
+  the queries and `application_name` shown in Sessions, and the names of their
+  tables and roles. pgtower shows that text, but any control character in it is
+  drawn as `�`, so an escape sequence can't set your window title or clipboard.
+
+Found a security problem? Please report it privately; see [SECURITY.md](SECURITY.md).
 
 ## Development
 

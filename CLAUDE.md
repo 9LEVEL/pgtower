@@ -75,6 +75,11 @@ copies (dropped after v0.12.0), so pgtui v0.9 cannot self-update to pgtower;
 it reinstalls with `install.sh`. Doc command-examples use a `vX.Y.Z`
 placeholder so they never go stale.
 
+A **security fix** follows [SECURITY.md](SECURITY.md): fix and release first,
+then an issue labelled `security` (impact, affected versions, fixed version,
+how to update), a **Security** section at the top of the release notes, and a
+published GitHub security advisory linking the three.
+
 ## Commit rules
 
 - **Do NOT add a `Co-Authored-By: Claude` trailer** (nor "Generated with Claude
