@@ -200,7 +200,8 @@ func (v *rolesView) Update(msg tea.Msg) tea.Cmd {
 }
 
 const dropRoleHint = "HOW TO FIX: the role owns objects or has privileges granted. " +
-	"Reassign the objects (REASSIGN OWNED BY \"role\" TO \"other\") or remove them " +
+	"Quickest: press F on the role (force-drop) to reassign everything it owns to another " +
+	"role in every database, remove its privileges and drop it. By hand: reassign the objects (REASSIGN OWNED BY \"role\" TO \"other\") or remove them " +
 	"(DROP OWNED BY \"role\") in EACH database where the role owns objects, and revoke " +
 	"database privileges/ownership, before the DROP ROLE. Run these commands " +
 	"from the Query tab (switching the target database with '/')."
@@ -281,6 +282,16 @@ func (v *rolesView) handleKey(msg tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	v.tbl, cmd = v.tbl.Update(msg)
 	return cmd
+}
+
+// hasRole reports whether a role of that exact name was loaded.
+func (v *rolesView) hasRole(name string) bool {
+	for _, r := range v.roles {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *rolesView) selectedRole() (db.Role, bool) {
@@ -609,7 +620,7 @@ func (v *rolesView) submitForm() tea.Cmd {
 	case formCreateRole:
 		name := strings.TrimSpace(v.form.value("name"))
 		if name == "" {
-			v.status = stWarnV.Render("name is required")
+			v.form.err = "name is required"
 			return nil
 		}
 		_, login := v.form.selected("login")
@@ -620,7 +631,7 @@ func (v *rolesView) submitForm() tea.Cmd {
 		// to plaintext so the server can SASLprep and hash it correctly.
 		secret, _, err := db.PasswordSecret(v.form.value("password"), v.cfg.SCRAMIterations)
 		if err != nil {
-			v.status = stBadV.Render("could not hash password: " + err.Error())
+			v.form.err = "could not hash password: " + err.Error()
 			return nil
 		}
 		sql := db.BuildCreateRole(name, secret, login == "yes", createdb == "yes", createrole == "yes")
@@ -709,16 +720,21 @@ func (v *rolesView) submitForm() tea.Cmd {
 	case formForceDrop:
 		successor := strings.TrimSpace(v.form.value("successor"))
 		confirm := strings.TrimSpace(v.form.value("confirm"))
-		if confirm != v.pendingForceRole {
-			v.status = stWarnV.Render("wrong confirmation — type the exact role name")
-			return nil
+		// Typing the name straight away lands in "Reassign to" (it has the
+		// focus), so check that field first: its error tells where the text went.
+		switch {
+		case successor == "":
+			v.form.err = "Reassign to: enter the role that takes over the objects"
+		case successor == v.pendingForceRole:
+			v.form.err = "Reassign to cannot be the role being dropped"
+		case !v.hasRole(successor):
+			v.form.err = fmt.Sprintf("Reassign to: there is no role %q", successor)
+		case confirm != v.pendingForceRole:
+			v.form.err = "Confirm: type " + v.pendingForceRole + " exactly (tab moves to the field)"
+		default:
+			v.form.err = ""
 		}
-		if successor == "" {
-			v.status = stWarnV.Render("enter the successor role")
-			return nil
-		}
-		if successor == v.pendingForceRole {
-			v.status = stWarnV.Render("successor cannot be the role itself")
+		if v.form.err != "" {
 			return nil
 		}
 		doomed := v.pendingForceRole
@@ -731,7 +747,7 @@ func (v *rolesView) submitForm() tea.Cmd {
 		raw := strings.TrimSpace(v.form.value("limit"))
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < -1 {
-			v.status = stWarnV.Render("enter an integer ≥ -1 (-1 = unlimited)")
+			v.form.err = "enter an integer ≥ -1 (-1 = unlimited)"
 			return nil
 		}
 		role := v.pendingLimitRole

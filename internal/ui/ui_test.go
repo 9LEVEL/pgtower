@@ -266,6 +266,56 @@ func TestSessionsAndRolesRender(t *testing.T) {
 	assertContains(t, m.View(), "Cluster roles")
 }
 
+// TestForceDropFormExplainsMistakes reproduces the user report "the force-drop
+// form stays open and won't take the Confirm": typing the role name right
+// away lands in "Reassign to" (it has the focus), and the validation message
+// went to the tab status line, hidden behind the form. It must show in the form.
+func TestForceDropFormExplainsMistakes(t *testing.T) {
+	v := newRolesView(&config.Config{User: "admin"}, nil)
+	v.SetSize(120, 40)
+	v.Update(rolesMsg{rows: []db.Role{{Name: "leitura", CanLogin: true}, {Name: "admin", Super: true}}})
+
+	v.Update(key("F"))
+	for _, r := range "leitura" {
+		v.Update(key(string(r)))
+	}
+	v.Update(key("enter"))
+	if !v.form.active {
+		t.Fatal("an invalid force-drop must keep the form open")
+	}
+	assertContains(t, v.View(), `Reassign to: there is no role "adminleitura"`)
+
+	// Fix "Reassign to", then a wrong confirmation is explained too.
+	v.Update(key("esc"))
+	v.Update(key("F"))
+	v.Update(tea.KeyMsg{Type: tea.KeyTab})
+	for _, r := range "leit" {
+		v.Update(key(string(r)))
+	}
+	v.Update(key("enter"))
+	assertContains(t, v.View(), "Confirm: type leitura exactly")
+
+	for _, r := range "ura" {
+		v.Update(key(string(r)))
+	}
+	if cmd := v.Update(key("enter")); cmd == nil || v.form.active {
+		t.Fatalf("a valid force-drop should close the form and run, err=%q", v.form.err)
+	}
+	assertContains(t, v.View(), "reassigning ownership and removing leitura")
+}
+
+func TestCreateRoleFormShowsMissingName(t *testing.T) {
+	v := newRolesView(&config.Config{}, nil)
+	v.SetSize(120, 40)
+	v.Update(rolesMsg{rows: []db.Role{{Name: "postgres"}}})
+	v.Update(key("n"))
+	v.Update(key("enter"))
+	if !v.form.active {
+		t.Fatal("the form must stay open")
+	}
+	assertContains(t, v.View(), "name is required")
+}
+
 // TestRolesResetPasswordFlow drives Enter → menu → reset password → confirm and
 // checks the generated password is shown. It needs no DB: the async ALTER ROLE
 // command is not executed; instead its success is simulated with an execMsg.
