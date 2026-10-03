@@ -316,7 +316,7 @@ func (v *tuningView) openSettingEdit() tea.Cmd {
 func (v *tuningView) submitSettingEdit() tea.Cmd {
 	val := strings.TrimSpace(v.setForm.value("value"))
 	if err := db.ValidateSettingValue(v.setEdit, val); err != nil {
-		v.setStatus = stWarnV.Render(v.setEdit.Name + ": " + err.Error())
+		v.setForm.err = v.setEdit.Name + ": " + err.Error()
 		return nil // keep the form open to fix the value
 	}
 	name := v.setEdit.Name
@@ -415,7 +415,7 @@ func (v *tuningView) submitHBAForm() tea.Cmd {
 		Method:   strings.TrimSpace(v.hbaForm.value("method")),
 	}
 	if in.Type == "" || in.Database == "" || in.User == "" || in.Method == "" {
-		v.hbaStatus = stWarnV.Render("type, database, user and method are required")
+		v.hbaForm.err = "type, database, user and method are required"
 		return nil
 	}
 	line := db.BuildHBALine(in)
@@ -427,7 +427,7 @@ func (v *tuningView) submitHBAForm() tea.Cmd {
 		newContent, err = db.HBAReplaceLine(v.hbaContent, v.hbaEditLine, line)
 	}
 	if err != nil {
-		v.hbaStatus = stErr.Render(err.Error())
+		v.hbaForm.err = err.Error()
 		return nil
 	}
 	v.hbaForm.close()
