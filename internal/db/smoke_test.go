@@ -3,6 +3,8 @@ package db_test
 import (
 	"context"
 	"os"
+	"regexp"
+	"slices"
 	"testing"
 	"time"
 
@@ -71,6 +73,24 @@ func TestSmoke(t *testing.T) {
 		t.Fatalf("expected 2 columns, got %d", len(res.Columns))
 	}
 	t.Logf("query runner: %d columns, %d rows, %s", len(res.Columns), res.RowCount, res.Elapsed)
+
+	// Cells show PostgreSQL's own text output, whatever the type (not a Go
+	// rendering such as a uuid as a byte list or numeric as a struct).
+	res, err = db.RunQuery(ctx, p, `select 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid, 1.50::numeric,
+		'{"a": 1}'::jsonb, '1 day 02:00'::interval, array[1,2], true, '2026-10-03'::date,
+		'2026-10-02 23:23:55.123456'::timestamp, null::text, '2026-10-02 23:23:55.123456+00'::timestamptz`)
+	if err != nil {
+		t.Fatalf("RunQuery(types): %v", err)
+	}
+	want := []string{"a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "1.50", `{"a": 1}`, "1 day 02:00:00",
+		"{1,2}", "t", "2026-10-03", "2026-10-02 23:23:55.123456", "∅"}
+	if got := res.Rows[0][:len(want)]; !slices.Equal(got, want) {
+		t.Errorf("cells = %q\nwant    %q", got, want)
+	}
+	// timestamptz is printed in the session's TimeZone, with its offset.
+	if tz := res.Rows[0][len(want)]; !regexp.MustCompile(`^2026-10-0[23] \d\d:\d\d:55\.123456[+-]\d\d`).MatchString(tz) {
+		t.Errorf("timestamptz cell = %q, want microseconds and a UTC offset", tz)
+	}
 
 	// Safety classifier.
 	cases := map[string]db.Danger{
