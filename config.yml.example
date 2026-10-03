@@ -7,6 +7,7 @@
 # Search order (first hit wins): ./config.yml, next to the pgtower binary,
 # ~/.config/pgtower/, /opt/pgtower/ (created by install.sh), /etc/pgtower/.
 # PGTOWER_CONFIG (a file) or PGTOWER_CONFIG_DIR (a directory) replace the search.
+# A file this user may not read (another user's 0600 config) is skipped.
 #
 # Precedence (highest first): environment variables > this file > defaults.
 # DATABASE_URL (or PGHOST/PGUSER/…) adds a session-only server named "env"
@@ -34,7 +35,10 @@ connections:
     host_ram_mb: 32768        # per-server override of the Tuning advisor facts
     host_cpus: 16
 
-  # …or the individual parts. host may be a unix-socket directory.
+  # …or the individual parts. host may be a unix-socket directory: with peer
+  # authentication no password is needed, and an empty user means the OS user
+  # running pgtower (as with psql). Over TCP an empty user means postgres.
+  # Press l on the Servers screen to fill this in for the local socket.
   - name: local
     host: /var/run/postgresql
     port: 5432

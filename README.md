@@ -111,6 +111,14 @@ make install        # -> /usr/local/bin/pgtower (sudo)
 pgtower        # first run: the Servers screen opens — press a to add a server
 ```
 
+PostgreSQL on this machine? Press `l` instead: it finds the local unix socket and
+fills in a password-less **peer** login. Peer admits only the role named after
+the OS user running pgtower, so to manage as `postgres` start it as that user:
+
+```bash
+sudo -u postgres pgtower   # then press l
+```
+
 Or, one-off without saving anything:
 
 ```bash
@@ -187,6 +195,11 @@ pgtower -s local        # open a specific one
   `config.yml`. `PGTOWER_*` variables override the settings.
 - **Passwords** can stay out of the file: leave the field empty and use
   `~/.pgpass`, or set `password_env: SOME_VAR` on the server.
+- **Local socket / peer**: set `host` to the socket directory
+  (`/var/run/postgresql`, or `/tmp` for source and Homebrew builds), not
+  `localhost` (that is TCP and usually wants a password). With `user` empty,
+  a socket connection logs in as the OS user, like `psql`; over TCP it stays
+  `postgres`. `l` on the Servers screen fills all of this in.
 - The **admin db** (the database in the URL, `postgres` by default) is where
   cluster-level queries run (`pg_stat_activity`, `pg_database`, replication,
   locks). pgtower opens additional connections on demand when you browse another
@@ -194,6 +207,8 @@ pgtower -s local        # open a specific one
 - Search locations: `PGTOWER_CONFIG` (an explicit file) or `PGTOWER_CONFIG_DIR` (a
   directory) **replace** the search; otherwise `./`, the binary's directory,
   `~/.config/pgtower/`, `/opt/pgtower/`, `/etc/pgtower/` (first hit wins).
+  A file you may not read (another user's `0600` config) is skipped and listed
+  on the Servers screen; pgtower never saves over it.
 
 ### Coming from pgtui
 

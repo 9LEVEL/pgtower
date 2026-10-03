@@ -34,7 +34,9 @@ defaults**. There is **no `.env`-file support** — env vars only, plus the file
   reference: `config.yml.example`.
 - Searched in `./`, the binary's dir, `~/.config/pgtower/`, `/opt/pgtower/`,
   `/etc/pgtower/`; `PGTOWER_CONFIG` (file) or `PGTOWER_CONFIG_DIR` (dir) replace the
-  search (tests rely on this for isolation).
+  search (tests rely on this for isolation). The default search skips files
+  the user may not read (`Store.Skipped`) and never saves over them; an
+  explicit `PGTOWER_CONFIG`/`_DIR` file must be readable.
 - `DATABASE_URL` / `PG*` add a session-only connection named `env`; it is never
   saved. `PGTOWER_*` override the settings.
 - pgtower was **pgtui** up to v0.9. `internal/config/legacy.go` still reads

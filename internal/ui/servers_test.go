@@ -147,6 +147,58 @@ func TestAddServerSavesAndConnects(t *testing.T) {
 	}
 }
 
+// "l" pre-fills a peer-auth server for the socket found on this machine.
+func TestLocalSocketPreset(t *testing.T) {
+	dir := t.TempDir()
+	l, err := net.Listen("unix", filepath.Join(dir, ".s.PGSQL.5544"))
+	if err != nil {
+		t.Skipf("unix sockets unavailable: %v", err)
+	}
+	defer l.Close()
+	orig := db.SocketDirs
+	db.SocketDirs = []string{dir}
+	defer func() { db.SocketDirs = orig }()
+
+	store := isolatedStore(t)
+	store.Connections = []config.Connection{{Name: "local", Host: "10.0.0.1"}}
+	m := New(store, "dev", nil)
+	var tm tea.Model = m
+	m.Init()
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	tm, _ = tm.Update(key("S"))
+	assertContains(t, tm.View(), "add local socket")
+
+	tm, _ = tm.Update(key("l"))
+	f := &m.servers.form
+	if !f.active {
+		t.Fatal("'l' should open the form pre-filled for the local socket")
+	}
+	c, err := serverFromForm(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := config.Connection{Name: "local-2", Host: dir, Port: 5544, User: config.DefaultUser(dir), SSLMode: "disable"}
+	if c != want {
+		t.Errorf("preset = %+v\nwant     %+v", c, want)
+	}
+	assertContains(t, tm.View(), "Socket found", "Peer authentication", "("+want.User+")")
+
+	db.SocketDirs = []string{t.TempDir()}
+	tm, _ = tm.Update(key("esc"))
+	tm, _ = tm.Update(key("l"))
+	assertContains(t, tm.View(), "No PostgreSQL socket found")
+}
+
+func TestSkippedConfigIsShown(t *testing.T) {
+	store := isolatedStore(t)
+	store.Skipped = []string{"/opt/pgtower/config.yml"}
+	m := New(store, "dev", nil)
+	var tm tea.Model = m
+	m.Init()
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	assertContains(t, tm.View(), "skipped, no permission: /opt/pgtower/config.yml")
+}
+
 func TestServerFormValidation(t *testing.T) {
 	m := New(isolatedStore(t), "dev", nil)
 	var tm tea.Model = m

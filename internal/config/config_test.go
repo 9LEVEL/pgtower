@@ -1,9 +1,12 @@
 package config
 
 import (
+	"io/fs"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -286,6 +289,110 @@ func TestPasswordEnv(t *testing.T) {
 	dsn, err := Connection{Name: "x", Host: "h", User: "u", PasswordEnv: "PG_TEST_PASS"}.DSN()
 	if err != nil || !strings.Contains(dsn, "u:s3cr3t@") {
 		t.Errorf("password_env should supply the password: %s %v", dsn, err)
+	}
+}
+
+// Over a unix socket an empty user is the OS user, as with psql — the only
+// role peer authentication admits. Over TCP it stays "postgres".
+func TestDefaultUserBySocketOrTCP(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	dsn, err := Connection{Name: "x", Host: "/var/run/postgresql"}.DSN()
+	if err != nil || !strings.HasPrefix(dsn, "postgres://"+me.Username+"@/") {
+		t.Errorf("socket without a user should log in as %s: %s %v", me.Username, dsn, err)
+	}
+	dsn, err = Connection{Name: "x", Host: "db.internal"}.DSN()
+	if err != nil || !strings.HasPrefix(dsn, "postgres://postgres@db.internal") {
+		t.Errorf("TCP without a user should log in as postgres: %s %v", dsn, err)
+	}
+	dsn, _ = Connection{Name: "x", Host: "/tmp", User: "app"}.DSN()
+	if !strings.HasPrefix(dsn, "postgres://app@/") {
+		t.Errorf("an explicit user must win: %s", dsn)
+	}
+}
+
+// stubReads makes readConfig fail with a permission error for the given paths
+// (root never gets one from a real file) and serve body for ok. Denied paths
+// exist unless hidden (inside a directory this user cannot search).
+func stubReads(t *testing.T, denied []string, ok, body string, hidden ...string) {
+	t.Helper()
+	origRead, origExists := readConfig, configExists
+	t.Cleanup(func() { readConfig, configExists = origRead, origExists })
+	configExists = func(p string) bool {
+		for _, h := range hidden {
+			if p == h {
+				return false
+			}
+		}
+		return true
+	}
+	readConfig = func(p string) ([]byte, error) {
+		for _, d := range denied {
+			if p == d {
+				return nil, &fs.PathError{Op: "open", Path: p, Err: syscall.EACCES}
+			}
+		}
+		if p == ok {
+			return []byte(body), nil
+		}
+		return nil, &fs.PathError{Op: "open", Path: p, Err: syscall.ENOENT}
+	}
+}
+
+// Another user's 0600 config.yml (e.g. root's /opt/pgtower one while running
+// as postgres) is skipped instead of stopping pgtower from starting.
+func TestUnreadableConfigIsSkipped(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("PGTOWER_CONFIG_DIR", "") // the default search
+	paths := configPaths()
+	if len(paths) < 3 {
+		t.Fatalf("too few search paths: %v", paths)
+	}
+	stubReads(t, []string{paths[0]}, paths[2], "version: 2\n")
+	path, raw, skipped, err := findConfigFile()
+	if err != nil {
+		t.Fatalf("an unreadable candidate must not be fatal: %v", err)
+	}
+	if path != paths[2] || string(raw) != "version: 2\n" {
+		t.Errorf("the next readable file should win, got %q", path)
+	}
+	if len(skipped) != 1 || skipped[0] != paths[0] {
+		t.Errorf("skipped = %v, want [%s]", skipped, paths[0])
+	}
+
+	// An unsearchable directory (cwd /root while running as postgres) may not
+	// even hold a config: pass it over without a word.
+	stubReads(t, []string{paths[0], paths[1]}, "", "", paths[0])
+	if path, _, skipped, err = findConfigFile(); err != nil || path != "" ||
+		len(skipped) != 1 || skipped[0] != paths[1] {
+		t.Errorf("want no file and only the existing one skipped: path=%q skipped=%v err=%v", path, skipped, err)
+	}
+}
+
+// A skipped file may sit in a directory this user can write (e.g. a root-owned
+// ~/.config/pgtower/config.yml left by "sudo pgtower"): never replace it.
+func TestSaveRefusesSkippedFile(t *testing.T) {
+	dir := isolateEnv(t)
+	p := filepath.Join(dir, "config.yml")
+	writeFile(t, p, "theirs\n")
+	s := &Store{Skipped: []string{p}, Connections: []Connection{{Name: "a", Host: "h"}}}
+	if err := s.Save(); err == nil || !strings.Contains(err.Error(), "another user") {
+		t.Errorf("saving over a skipped file must fail, got %v", err)
+	}
+	if got := readFile(t, p); got != "theirs\n" {
+		t.Errorf("the skipped file was overwritten: %q", got)
+	}
+}
+
+func TestUnreadableExplicitConfigIsFatal(t *testing.T) {
+	dir := isolateEnv(t)
+	p := filepath.Join(dir, "mine.yml")
+	t.Setenv("PGTOWER_CONFIG", p)
+	stubReads(t, []string{p}, "", "")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Errorf("a file named by PGTOWER_CONFIG must be readable, got %v", err)
 	}
 }
 
