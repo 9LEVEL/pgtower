@@ -147,19 +147,19 @@ func TestDataBrowserLive(t *testing.T) {
 	if b.err != nil {
 		t.Fatalf("Open: %v", b.err)
 	}
-	if len(b.allCols) < 5 || len(b.allRows) == 0 {
-		t.Fatalf("expected several columns and rows, got cols=%d rows=%d", len(b.allCols), len(b.allRows))
+	if len(b.grid.cols) < 5 || len(b.grid.rows) == 0 {
+		t.Fatalf("expected several columns and rows, got cols=%d rows=%d", len(b.grid.cols), len(b.grid.rows))
 	}
 
 	// column navigation: →→ advances the cursor and keeps it within bounds.
 	b.Update(key("right"))
 	b.Update(key("right"))
-	if b.colCursor != 2 {
-		t.Errorf("colCursor after 2×→ = %d, want 2", b.colCursor)
+	if b.grid.colCursor != 2 {
+		t.Errorf("colCursor after 2×→ = %d, want 2", b.grid.colCursor)
 	}
 	b.Update(key("left"))
-	if b.colCursor != 1 {
-		t.Errorf("colCursor after ← = %d, want 1", b.colCursor)
+	if b.grid.colCursor != 1 {
+		t.Errorf("colCursor after ← = %d, want 1", b.grid.colCursor)
 	}
 
 	if !strings.Contains(b.View(), "pg_catalog.pg_class") {
@@ -170,24 +170,24 @@ func TestDataBrowserLive(t *testing.T) {
 	// boundaries (where the count of visible columns changes) — this used to
 	// overflow an index in the bubbles table render. View() forces the render.
 	b.SetSize(80, 24) // smaller width => more window swaps
-	b.colCursor, b.colOffset = 0, 0
-	b.buildGrid()
-	for i := 0; i < len(b.allCols)+3; i++ {
+	b.grid.resetColumns()
+	b.grid.build()
+	for i := 0; i < len(b.grid.cols)+3; i++ {
 		b.Update(key("right"))
 		_ = b.View()
 	}
-	for i := 0; i < len(b.allCols)+3; i++ {
+	for i := 0; i < len(b.grid.cols)+3; i++ {
 		b.Update(key("left"))
 		_ = b.View()
 	}
-	if b.colCursor != 0 {
-		t.Errorf("after going back through all columns, colCursor=%d, want 0", b.colCursor)
+	if b.grid.colCursor != 0 {
+		t.Errorf("after going back through all columns, colCursor=%d, want 0", b.grid.colCursor)
 	}
 	b.SetSize(120, 30)
 
 	// search in column 'relname' for the table's own name -> >=1 row.
 	relname := -1
-	for i, c := range b.allCols {
+	for i, c := range b.grid.cols {
 		if c == "relname" {
 			relname = i
 		}
@@ -195,7 +195,7 @@ func TestDataBrowserLive(t *testing.T) {
 	if relname < 0 {
 		t.Fatal("relname column not found")
 	}
-	b.colCursor = relname
+	b.grid.colCursor = relname
 	b.mode = dataSearch
 	b.search.SetValue("pg_class")
 	rmsg := b.handleSearchKey(tea.KeyMsg{Type: tea.KeyEnter})()
@@ -205,6 +205,19 @@ func TestDataBrowserLive(t *testing.T) {
 	}
 	if b.rowCount < 1 {
 		t.Errorf("search 'pg_class' in relname returned %d rows, expected >=1", b.rowCount)
+	}
+
+	// y copies the active cell (relname stays the active column).
+	copied, _ := stubClipboard(t, nil)
+	b.grid.table.GotoTop()
+	for i := 0; i < len(b.grid.raw) && b.grid.raw[b.grid.table.Cursor()][relname] != "pg_class"; i++ {
+		b.Update(key("down"))
+	}
+	if cmd := b.Update(key("y")); cmd != nil {
+		cmd()
+	}
+	if len(*copied) != 1 || (*copied)[0] != "pg_class" {
+		t.Errorf("y in the data browser copied %q, want [pg_class]", *copied)
 	}
 
 	// query bar refuses writes (read-only).

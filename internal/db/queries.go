@@ -252,9 +252,10 @@ func ListBlocks(ctx context.Context, p Pinger) ([]BlockPair, error) {
 // QueryResult carries the result of an ad-hoc query.
 type QueryResult struct {
 	Columns   []string
-	Rows      [][]string
-	Command   string // command tag (e.g. "UPDATE 3") for statements without a result
-	RowCount  int    // rows returned (SELECT) or affected
+	Rows      [][]string // display text: one line per cell, NULL as ∅, bytea abbreviated
+	Raw       [][]string // full text of each cell, for copying: "" for NULL (see maxCopyCell)
+	Command   string     // command tag (e.g. "UPDATE 3") for statements without a result
+	RowCount  int        // rows returned (SELECT) or affected
 	Elapsed   time.Duration
 	Truncated bool
 }
@@ -288,7 +289,9 @@ func RunQuery(ctx context.Context, p Pinger, sql string) (QueryResult, error) {
 			res.Truncated = true
 			break
 		}
-		res.Rows = append(res.Rows, formatRow(fields, rows.RawValues()))
+		disp, full := formatRow(fields, rows.RawValues())
+		res.Rows = append(res.Rows, disp)
+		res.Raw = append(res.Raw, full)
 	}
 	if err := rows.Err(); err != nil {
 		return res, err
@@ -307,28 +310,48 @@ func RunQuery(ctx context.Context, p Pinger, sql string) (QueryResult, error) {
 	return res, nil
 }
 
-func formatRow(fields []pgconn.FieldDescription, vals [][]byte) []string {
-	out := make([]string, len(vals))
+// formatRow returns each cell's display text and its full text for copying.
+func formatRow(fields []pgconn.FieldDescription, vals [][]byte) (disp, full []string) {
+	disp, full = make([]string, len(vals)), make([]string, len(vals))
 	for i, v := range vals {
-		out[i] = formatValue(v, fields[i].DataTypeOID)
+		disp[i], full[i] = cellText(v, fields[i].DataTypeOID)
 	}
-	return out
+	return disp, full
 }
 
 // byteaPreview is how much of a bytea's text ("\\x" + hex) a cell shows: the
 // first 16 bytes.
 const byteaPreview = 2 + 16*2
 
-// formatValue renders a text-format value for a one-line grid cell: NULL as ∅,
-// bytea abbreviated.
-func formatValue(v []byte, oid uint32) string {
-	switch {
-	case v == nil:
-		return "∅" // NULL
-	case oid == pgtype.ByteaOID && len(v) > byteaPreview:
-		return string(v[:byteaPreview]) + "…"
+// maxCopyCell caps the full text kept for copying a cell that displays
+// something shorter (an abbreviated bytea, collapsed line breaks): a bigger
+// one is not kept, so a result full of large values does not hold them twice.
+// Any other cell's full text is its display string, at no extra cost.
+const maxCopyCell = 64 << 10
+
+// cellText renders a text-format value: disp for a one-line grid cell (NULL
+// as ∅, bytea abbreviated), full as PostgreSQL printed it, for copying ("" for
+// NULL or over maxCopyCell).
+func cellText(v []byte, oid uint32) (disp, full string) {
+	if v == nil {
+		return "∅", "" // NULL
 	}
-	return collapse(string(v))
+	full = string(v)
+	if oid == pgtype.ByteaOID && len(full) > byteaPreview {
+		disp = full[:byteaPreview] + "…"
+	} else {
+		disp = collapse(full)
+	}
+	if disp != full && len(full) > maxCopyCell {
+		full = ""
+	}
+	return disp, full
+}
+
+// formatValue is cellText's display text.
+func formatValue(v []byte, oid uint32) string {
+	disp, _ := cellText(v, oid)
+	return disp
 }
 
 // lineBreaks become single spaces ("\r\n" first, so it is one).

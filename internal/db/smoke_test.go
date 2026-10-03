@@ -74,6 +74,18 @@ func TestSmoke(t *testing.T) {
 	}
 	t.Logf("query runner: %d columns, %d rows, %s", len(res.Columns), res.RowCount, res.Elapsed)
 
+	// Raw keeps what the one-line grid cell drops (it is what gets copied).
+	res, err = db.RunQuery(ctx, p, `select E'a\nb' as t, null as n, '\x000102'::bytea as b`)
+	if err != nil {
+		t.Fatalf("RunQuery(raw): %v", err)
+	}
+	if got, want := res.Rows[0], []string{"a b", "∅", `\x000102`}; !slices.Equal(got, want) {
+		t.Errorf("display row = %q, want %q", got, want)
+	}
+	if got, want := res.Raw[0], []string{"a\nb", "", `\x000102`}; !slices.Equal(got, want) {
+		t.Errorf("raw row = %q, want %q", got, want)
+	}
+
 	// Cells show PostgreSQL's own text output, whatever the type (not a Go
 	// rendering such as a uuid as a byte list or numeric as a struct).
 	res, err = db.RunQuery(ctx, p, `select 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid, 1.50::numeric,

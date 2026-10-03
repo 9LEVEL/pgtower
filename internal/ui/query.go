@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -28,7 +27,7 @@ type queryView struct {
 	mgr *db.Manager
 
 	editor  textarea.Model
-	results table.Model
+	results resultGrid
 	confirm textinput.Model
 	target  textinput.Model
 
@@ -44,7 +43,6 @@ type queryView struct {
 	pendingDanger db.Danger
 
 	running bool
-	res     db.QueryResult
 	hasRes  bool
 	command string
 	err     error
@@ -71,7 +69,7 @@ func newQueryView(cfg *config.Config, mgr *db.Manager) *queryView {
 		cfg:      cfg,
 		mgr:      mgr,
 		editor:   ta,
-		results:  newTable(),
+		results:  newResultGrid(48),
 		confirm:  ci,
 		target:   ti,
 		mode:     modeResults, // starts in navigation; 'i'/enter focuses the editor
@@ -100,6 +98,7 @@ func (v *queryView) SetSize(w, h int) {
 		resH = 3
 	}
 	v.results.SetHeight(resH)
+	v.results.SetWidth(w)
 	v.confirm.Width = 20
 	v.target.Width = 30
 }
@@ -112,13 +111,13 @@ func (v *queryView) Update(msg tea.Msg) tea.Cmd {
 		v.hasRes = false
 		v.command = ""
 		if msg.err == nil {
-			v.res = msg.res
 			if len(msg.res.Columns) == 0 {
 				v.command = msg.res.Command
 				v.status = fmt.Sprintf("OK · %s · %s", msg.res.Command, msg.res.Elapsed.Round(1e6))
 			} else {
 				v.hasRes = true
-				v.buildResults()
+				v.results.SetData(msg.res)
+				v.results.table.GotoTop()
 				trunc := ""
 				if msg.res.Truncated {
 					trunc = fmt.Sprintf(" (truncated at %d)", len(msg.res.Rows))
@@ -188,9 +187,10 @@ func (v *queryView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		v.mode = modeEdit
 		return v.editor.Focus()
 	}
-	var cmd tea.Cmd
-	v.results, cmd = v.results.Update(msg)
-	return cmd
+	if !v.hasRes {
+		return nil // the grid may still hold a previous, hidden result
+	}
+	return v.results.Update(msg)
 }
 
 // openTarget opens the database selector: reloads the list and focuses the filter.
@@ -353,33 +353,6 @@ func (v *queryView) run(sql string) tea.Cmd {
 	return runQuery(v.mgr, v.targetDB, sql)
 }
 
-func (v *queryView) buildResults() {
-	res := v.res
-	n := len(res.Columns)
-	widths := make([]int, n)
-	for i, c := range res.Columns {
-		widths[i] = len([]rune(c))
-	}
-	for _, row := range res.Rows {
-		for i, cell := range row {
-			if l := len([]rune(cell)); l > widths[i] {
-				widths[i] = l
-			}
-		}
-	}
-	cols := make([]table.Column, n)
-	for i := range widths {
-		cols[i] = table.Column{Title: strings.ToUpper(res.Columns[i]), Width: clampInt(widths[i]+1, 4, 48)}
-	}
-	rows := make([]table.Row, len(res.Rows))
-	for i, r := range res.Rows {
-		rows[i] = table.Row(r)
-	}
-	v.results.SetColumns(cols)
-	v.results.SetRows(rows)
-	v.results.SetCursor(0)
-}
-
 func (v *queryView) FooterHints() string {
 	switch v.mode {
 	case modeConfirm:
@@ -389,7 +362,11 @@ func (v *queryView) FooterHints() string {
 	case modeEdit:
 		return hint("ctrl+r", "run") + "   " + hint("ctrl+t", "switch db") + "   " + hint("esc", "results")
 	default:
-		return hint("i", "edit") + "  " + hint("/", "switch db") + "  " + hint("x", "explain") + "  " + hint("ctrl+r", "run") + "  " + hint("↑↓", "scroll")
+		h := hint("i", "edit") + "  " + hint("/", "switch db") + "  " + hint("x", "explain") + "  " + hint("ctrl+r", "run")
+		if v.hasRes {
+			h += "  " + hint("←→", "columns") + "  " + hint("y/Y", "copy cell/row")
+		}
+		return h
 	}
 }
 
@@ -433,7 +410,11 @@ func (v *queryView) statusLine() string {
 		return stErr.Render("✗ " + collapseErr(v.err.Error()))
 	}
 	if v.status != "" {
-		return stStatus.Render(v.status)
+		line := stStatus.Render(v.status)
+		if info := v.results.colInfo(); v.hasRes && info != "" {
+			line += stKeyHint.Render("  ·  " + info)
+		}
+		return line
 	}
 	return stKeyHint.Render("tip: ctrl+r runs · write statements ask for confirmation")
 }
